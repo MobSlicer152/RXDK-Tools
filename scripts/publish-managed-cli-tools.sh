@@ -18,6 +18,9 @@ cli_tools=(
   "Rxdk.XboxLaunch.Cli/Rxdk.XboxLaunch.Cli.csproj:xbox-launch"
   "Rxdk.XboxDbgBridge.Cli/Rxdk.XboxDbgBridge.Cli.csproj:xboxdbg-bridge"
   "Rxdk.XbWatson/Rxdk.XbWatson.csproj:xbwatson"
+  # Avalonia GUI app, same single-file publish shape as xbwatson (SingleFilePublish.props
+  # embeds the Avalonia native libs), so it ships as one flat exe in tools/ too.
+  "Rxdk.XbNeighborhood/Rxdk.XbNeighborhood.csproj:xbneighborhood"
 )
 
 mkdir -p "$tools_dir"

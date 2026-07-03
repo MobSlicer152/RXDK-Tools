@@ -19,7 +19,10 @@ $cliTools = @(
     @{ Project = "Rxdk.ImageBld\Rxdk.ImageBld.csproj"; Name = "imagebld" },
     @{ Project = "Rxdk.XboxLaunch.Cli\Rxdk.XboxLaunch.Cli.csproj"; Name = "xbox-launch" },
     @{ Project = "Rxdk.XboxDbgBridge.Cli\Rxdk.XboxDbgBridge.Cli.csproj"; Name = "xboxdbg-bridge" },
-    @{ Project = "Rxdk.XbWatson\Rxdk.XbWatson.csproj"; Name = "xbwatson" }
+    @{ Project = "Rxdk.XbWatson\Rxdk.XbWatson.csproj"; Name = "xbwatson" },
+    # Avalonia GUI app, same single-file publish shape as xbwatson (SingleFilePublish.props
+    # embeds the Avalonia native libs), so it ships as one flat exe in tools/ too.
+    @{ Project = "Rxdk.XbNeighborhood\Rxdk.XbNeighborhood.csproj"; Name = "xbneighborhood" }
 )
 
 New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
