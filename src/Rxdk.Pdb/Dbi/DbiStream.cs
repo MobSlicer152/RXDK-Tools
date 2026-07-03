@@ -22,11 +22,19 @@ public sealed class DbiStream
     public IReadOnlyList<DbiModule> Modules { get; }
     public IReadOnlyList<SectionHeader> Sections => _sections;
 
-    private DbiStream(DbiModule[] modules, SectionContribution[] contributions, SectionHeader[] sections)
+    /// <summary>
+    /// MSF stream holding the flat symbol-record blob referenced by the global (GSI) and public
+    /// (PSI) hash tables. Walking it linearly yields every global-scope symbol (S_GDATA32 globals,
+    /// S_LDATA32 statics, S_PUB32 publics). -1 when absent.
+    /// </summary>
+    public int SymbolRecordStreamIndex { get; }
+
+    private DbiStream(DbiModule[] modules, SectionContribution[] contributions, SectionHeader[] sections, int symbolRecordStreamIndex)
     {
         Modules = modules;
         _contributions = contributions;
         _sections = sections;
+        SymbolRecordStreamIndex = symbolRecordStreamIndex;
     }
 
     public static DbiStream Parse(MsfFile msf)
@@ -41,7 +49,7 @@ public sealed class DbiStream
         _ = r.ReadUInt16();                   // BuildNumber
         _ = r.ReadUInt16();                   // PublicStreamIndex
         _ = r.ReadUInt16();                   // PdbDllVersion
-        _ = r.ReadUInt16();                   // SymRecordStreamIndex
+        var symRecordStreamIndex = r.ReadUInt16();
         _ = r.ReadUInt16();                   // PdbDllRbld
         var modInfoSize = r.ReadInt32();
         var secContrSize = r.ReadInt32();
@@ -63,7 +71,7 @@ public sealed class DbiStream
                               sourceInfoSize + typeServerMapSize + ecSubstreamSize;
         var sections = ParseSectionHeaders(msf, stream, dbgHeaderOffset, optionalDbgHeaderSize);
 
-        return new DbiStream(modules, contributions, sections);
+        return new DbiStream(modules, contributions, sections, symRecordStreamIndex == 0xFFFF ? -1 : symRecordStreamIndex);
     }
 
     /// <summary>Converts a (1-based section, offset) pair to an image RVA, or 0 if out of range.</summary>

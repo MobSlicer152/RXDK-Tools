@@ -46,17 +46,128 @@ internal sealed class ManagedSymbols
         return emitted;
     }
 
+    /// <summary>
+    /// Emits the program's global-scope data symbols (globals + file-statics), formatting each at its
+    /// absolute kit address (moduleBase + RVA). Compiler-generated helpers and publics are skipped.
+    /// <paramref name="maxTier"/> caps how far past the title's own mutable globals to include
+    /// (0 = title .data only, 1 = + title const tables, 2 = + linked-library globals); it is driven
+    /// by the extension's "Globals visibility" toggle. Returns false when the PDB has no usable data
+    /// globals (so the map fallback can take over).
+    /// </summary>
+    internal bool EmitGlobals(VariableJson variables, KitMemoryAccess memory, int maxVars, int maxTier)
+    {
+        if (_moduleBase == 0)
+            return false;
+
+        // Rank the program's globals so the Globals pane shows the most useful set. A title links
+        // hundreds of library globals (D3D::*, CRT stdio, ...) plus compile-time const lookup tables
+        // from system headers (e.g. D3DTEXTUREDIRECTENCODE, emitted into the title's own .obj but
+        // living in read-only .rdata). What the user actually debugs is mutable program state:
+        //   tier 0 = title compiland + writable section (.data/.bss) — the real globals
+        //   tier 1 = title compiland, any section                    — include title's const tables
+        //   tier 2 = everything                                      — last-resort, library globals
+        // The toggle sets maxTier; we show every tier up to it, but relax upward if that would leave
+        // the pane empty (e.g. a title with no writable globals) so there's always something to see.
+        var candidates = new List<(GlobalSymbol Global, nuint Address, int Tier)>();
+        foreach (var global in _pdb.EnumerateGlobals())
+        {
+            if (global.IsPublic || IsHiddenGlobal(global.Name))
+                continue;
+            var rva = _pdb.Dbi.SectionOffsetToRva(global.Section, (int)global.Offset);
+            if (rva == 0)
+                continue;
+            var address = _moduleBase + (nuint)rva;
+            var module = _pdb.Dbi.FindModuleByRva(rva);
+            var isTitle = module is not null && !IsLibraryObject(module.ObjectFileName);
+            var tier = isTitle ? (IsWritableSection(global.Section) ? 0 : 1) : 2;
+            candidates.Add((global, address, tier));
+        }
+
+        var showTier = Math.Clamp(maxTier, 0, 2);
+        while (showTier < 2 && !candidates.Exists(c => c.Tier <= showTier))
+            showTier++;
+
+        var emitted = false;
+        foreach (var (global, address, tier) in candidates)
+        {
+            if (variables.IsFull || variables.Count >= maxVars)
+                break;
+            if (tier > showTier)
+                continue;
+
+            var display = CleanGlobalName(global.Name);
+            if (variables.WasEmitted(display))
+                continue;
+
+            // Display the readable name but expand under the raw symbol name, since TryEmitMembers
+            // matches globals by their raw stream name.
+            EmitValue(display, global.TypeIndex, address, memory, variables, expandBase: global.Name);
+            emitted = true;
+        }
+
+        return emitted;
+    }
+
     /// <summary>Expands one aggregate local (array elements or struct members) by name.</summary>
     internal bool TryEmitMembers(string baseName, ref XbdmContext context, VariableJson variables, KitMemoryAccess memory)
     {
         var frame = FindFrame(context.Eip);
         var local = frame?.Locals.FirstOrDefault(l => l.Name == baseName);
-        if (local is null)
-            return false;
+        if (local is not null)
+        {
+            var address = (nuint)((long)context.Ebp + local.FrameOffset);
+            EmitChildren(local.TypeIndex, address, memory, variables);
+            return variables.Count > 0;
+        }
 
-        var address = (nuint)((long)context.Ebp + local.FrameOffset);
-        EmitChildren(local.TypeIndex, address, memory, variables);
-        return variables.Count > 0;
+        // No matching local: the name may be a global aggregate (struct/array) being expanded.
+        foreach (var global in _pdb.EnumerateGlobals())
+        {
+            if (global.IsPublic || global.Name != baseName)
+                continue;
+            if (!TryGlobalAddress(global, out var address))
+                continue;
+
+            EmitChildren(global.TypeIndex, address, memory, variables);
+            return variables.Count > 0;
+        }
+
+        return false;
+    }
+
+    private bool TryGlobalAddress(GlobalSymbol global, out nuint address)
+    {
+        address = 0;
+        var rva = _pdb.Dbi.SectionOffsetToRva(global.Section, (int)global.Offset);
+        if (rva == 0)
+            return false;
+        address = _moduleBase + (nuint)rva;
+        return true;
+    }
+
+    // A module contributed by a static library records the .lib as its object file; the title's own
+    // compiland records its .obj/.o. That distinguishes program globals from linked-in library ones.
+    private static bool IsLibraryObject(string objectFile) =>
+        objectFile.EndsWith(".lib", StringComparison.OrdinalIgnoreCase);
+
+    // IMAGE_SCN_MEM_WRITE — set on .data/.bss (mutable program state), clear on .rdata (compile-time
+    // constants). Mutable globals are what a debugger's Globals pane is for; const tables are noise.
+    private const uint ImageScnMemWrite = 0x80000000;
+
+    private bool IsWritableSection(ushort section)
+    {
+        var sections = _pdb.Dbi.Sections;
+        if (section == 0 || section > sections.Count)
+            return false;
+        return (sections[section - 1].Characteristics & ImageScnMemWrite) != 0;
+    }
+
+    // File-static / anonymous-namespace globals carry a `anonymous namespace':: qualifier in their
+    // symbol name; strip it for display (kept only as a scope marker, not part of the variable name).
+    private static string CleanGlobalName(string name)
+    {
+        const string anon = "`anonymous namespace'::";
+        return name.StartsWith(anon, StringComparison.Ordinal) ? name[anon.Length..] : name;
     }
 
     private FrameInfo? FindFrame(uint eip)
@@ -159,4 +270,16 @@ internal sealed class ManagedSymbols
     // Skip compiler-generated / mangled helper locals to match the dbghelp path's filtering.
     private static bool IsHidden(string name) =>
         string.IsNullOrEmpty(name) || name.StartsWith("__", StringComparison.Ordinal);
+
+    // Global symbol records carry more toolchain noise than locals: precompiled-header markers
+    // (__@@_PchSym_), CRT section anchors (__xc_a/__xi_a), string-literal statics ($SG.../??_C),
+    // and C++-mangled names. Filter those the way the map-file path filtered its own noise, so the
+    // Globals pane shows the program's real variables.
+    private static bool IsHiddenGlobal(string name) =>
+        string.IsNullOrEmpty(name) ||
+        name.StartsWith("__", StringComparison.Ordinal) ||
+        name.StartsWith("$", StringComparison.Ordinal) ||
+        name.StartsWith("?", StringComparison.Ordinal) ||
+        name.StartsWith(".", StringComparison.Ordinal) ||
+        name.Contains("_PchSym_", StringComparison.Ordinal);
 }

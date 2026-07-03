@@ -62,6 +62,57 @@ public sealed class SymbolReader
         }
     }
 
+    /// <summary>
+    /// Enumerates the program's global-scope data symbols by walking the flat symbol-record stream
+    /// (the blob the GSI/PSI hash tables index into). Yields S_GDATA32 globals and S_LDATA32 statics
+    /// with their type index, plus S_PUB32 publics (no type). Unlike the per-module symbol streams,
+    /// this stream has no leading CodeView signature, so parsing starts at offset 0.
+    /// </summary>
+    public IEnumerable<GlobalSymbol> EnumerateGlobals()
+    {
+        var streamIndex = _dbi.SymbolRecordStreamIndex;
+        if (streamIndex < 0 || streamIndex >= _msf.StreamCount)
+            yield break;
+
+        var stream = _msf.ReadStream(streamIndex);
+        var r = new LeReader(stream);
+
+        while (r.Remaining >= 4)
+        {
+            var recLen = r.ReadUInt16();
+            var recEnd = r.Position + recLen;
+            if (recLen < 2 || recEnd > r.Length)
+                break;
+            var kind = (SymbolKind)r.ReadUInt16();
+
+            switch (kind)
+            {
+                case SymbolKind.GData32:
+                case SymbolKind.LData32:
+                {
+                    var type = r.ReadUInt32();
+                    var offset = r.ReadUInt32();
+                    var segment = r.ReadUInt16();
+                    var name = r.ReadCString();
+                    yield return new GlobalSymbol(name, type, segment, offset, IsPublic: false);
+                    break;
+                }
+
+                case SymbolKind.Pub32:
+                {
+                    _ = r.ReadUInt32(); // pubsymflags
+                    var offset = r.ReadUInt32();
+                    var segment = r.ReadUInt16();
+                    var name = r.ReadCString();
+                    yield return new GlobalSymbol(name, 0, segment, offset, IsPublic: true);
+                    break;
+                }
+            }
+
+            r.Position = recEnd;
+        }
+    }
+
     private FrameInfo? FindInModule(DbiModule module, uint rva)
     {
         foreach (var frame in EnumerateModuleFrames(module))

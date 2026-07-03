@@ -97,7 +97,10 @@ internal sealed partial class DebugBridgeSession
         }
         else if (scope.Equals("globals", StringComparison.OrdinalIgnoreCase))
         {
-            _symbols.EmitGlobals(variables, maxVars: 256);
+            // globalsFilter: 0 = title mutable globals (default), 1 = + title const tables,
+            // 2 = + linked-library globals. Driven by the extension's visibility toggle.
+            var maxTier = BridgeJson.TryGetUInt32(root, "globalsFilter", out var filter) ? (int)filter : 0;
+            _symbols.EmitGlobals(variables, CreateKitMemory(), maxVars: 256, maxTier);
         }
         else if (scope.Equals("locals", StringComparison.OrdinalIgnoreCase))
         {

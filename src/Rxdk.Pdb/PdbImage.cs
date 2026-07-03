@@ -45,4 +45,7 @@ public sealed class PdbImage
 
     /// <summary>Finds the function containing an image RVA and returns its frame-relative locals.</summary>
     public FrameInfo? FindFrame(uint rva) => Symbols.FindFrame(rva);
+
+    /// <summary>Enumerates the program's global-scope data symbols (globals, statics, publics).</summary>
+    public IEnumerable<GlobalSymbol> EnumerateGlobals() => Symbols.EnumerateGlobals();
 }

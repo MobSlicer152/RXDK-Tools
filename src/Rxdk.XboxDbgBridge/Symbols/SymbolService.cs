@@ -294,11 +294,27 @@ internal sealed class SymbolService : IDisposable
 
     private SymbolTypeEngine CreateTypeEngine() => new(_pdbBase, _moduleBase);
 
-    internal void EmitGlobals(VariableJson variables, int maxVars)
+    internal void EmitGlobals(VariableJson variables, KitMemoryAccess memory, int maxVars, int maxTier)
     {
-        if (string.IsNullOrEmpty(_mapPath))
-            return;
-        MapFileGlobals.Emit(_mapPath, _mapLinkBase, _moduleBase, variables, maxVars);
+        // Prefer the managed PDB reader: it enumerates the global-symbol stream with real type info
+        // (size/shape) so aggregates format and expand like locals. Fall back to the linker .map only
+        // when the PDB yields nothing (no symbols, or moduleBase not yet known).
+        var managed = TryGetManaged();
+        if (managed is not null)
+        {
+            try
+            {
+                if (managed.EmitGlobals(variables, memory, maxVars, maxTier))
+                    return;
+            }
+            catch (Exception ex)
+            {
+                BridgeWriter.Log($"managed EmitGlobals failed: {ex.Message}");
+            }
+        }
+
+        if (!string.IsNullOrEmpty(_mapPath))
+            MapFileGlobals.Emit(_mapPath, _mapLinkBase, _moduleBase, variables, maxVars);
     }
 
     internal void EmitRegisters(VariableJson variables, ref Xbdm.XbdmContext context)
