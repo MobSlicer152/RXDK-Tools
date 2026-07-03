@@ -13,6 +13,7 @@ cli_tools=(
   "Rxdk.XbCp/Rxdk.XbCp.csproj:xbcp"
   "Rxdk.XbDir/Rxdk.XbDir.csproj:xbdir"
   "Rxdk.XbMkdir/Rxdk.XbMkdir.csproj:xbmkdir"
+  "Rxdk.XbDel/Rxdk.XbDel.csproj:xbdel"
   "Rxdk.XbeCopy/Rxdk.XbeCopy.csproj:xbecopy"
   "Rxdk.ImageBld/Rxdk.ImageBld.csproj:imagebld"
   "Rxdk.XboxLaunch.Cli/Rxdk.XboxLaunch.Cli.csproj:xbox-launch"

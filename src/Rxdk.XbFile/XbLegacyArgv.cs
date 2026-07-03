@@ -9,9 +9,13 @@ public static class XbLegacyArgv
     private static readonly HashSet<char> XbCpOptionChars = new("hrsfyqdetfHRSFYQDETF");
     private static readonly HashSet<char> XbDirOptionChars = new("hrsbwhHRSBWH");
     private static readonly HashSet<char> XbMkdirOptionChars = new("tT");
+    private static readonly HashSet<char> XbDelOptionChars = new("rfvqRFVQ");
 
     public static string[] ForXbCp(string[] args) =>
         ExpandOptnStyle(args, XbCpOptionChars);
+
+    public static string[] ForXbDel(string[] args) =>
+        ExpandOptnStyle(args, XbDelOptionChars);
 
     public static string[] ForXbDir(string[] args) =>
         ExpandOptnStyle(args, XbDirOptionChars);
