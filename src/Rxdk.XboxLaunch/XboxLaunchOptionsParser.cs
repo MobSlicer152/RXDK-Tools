@@ -48,6 +48,12 @@ public static class XboxLaunchOptionsParser
                 continue;
             }
 
+            if (IsSwitch(arg, "rebootonly"))
+            {
+                options.RebootOnly = true;
+                continue;
+            }
+
             if (IsSwitch(arg, "timeout") && i + 1 < args.Length)
             {
                 options.TimeoutMs = int.Parse(args[++i]);
@@ -57,7 +63,10 @@ public static class XboxLaunchOptionsParser
             throw new XboxLaunchUsageException();
         }
 
-        if (string.IsNullOrWhiteSpace(options.Directory) || string.IsNullOrWhiteSpace(options.Title))
+        // Reboot-only just warm-reboots the kit -- no title to launch, so /dir and
+        // /title aren't required.
+        if (!options.RebootOnly &&
+            (string.IsNullOrWhiteSpace(options.Directory) || string.IsNullOrWhiteSpace(options.Title)))
             throw new XboxLaunchUsageException();
 
         return options;

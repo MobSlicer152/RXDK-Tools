@@ -14,6 +14,11 @@ public sealed class XboxLaunchOptions
     // on the kit (like a manual launch). Without this, the title is halted at
     // the first thread creation waiting for a debugger and never runs.
     public bool Go { get; set; } = false;
+
+    // Reboot-only: warm-reboot the console and exit, without launching a title.
+    // Used to reload E:\dxt debug-monitor extensions (xbdm re-scans E:\dxt at
+    // debug-monitor init on every boot). /dir and /title are not required.
+    public bool RebootOnly { get; set; } = false;
 }
 
 public enum XboxLaunchExitCode

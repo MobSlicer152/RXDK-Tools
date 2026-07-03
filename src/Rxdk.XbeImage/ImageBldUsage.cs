@@ -5,6 +5,7 @@ public static class ImageBldUsage
     public static void Print(TextWriter writer)
     {
         writer.WriteLine("usage: IMAGEBLD [options] [infile]");
+        writer.WriteLine("       IMAGEBLD /DXT infile [outfile]\tPatch a DXT PE (subsystem->Xbox); no XBE wrap");
         writer.WriteLine("  /DEFAULTSAVEIMAGE:imagefile\tDefault Save Image (XPR format) for this image");
         writer.WriteLine("  /DONTMODIFYHD\t\t\tNo hard disk writing (no T: and U: drives)");
         writer.WriteLine("  /DONTMOUNTUD\t\t\tInitialize without mounting a utility drive");

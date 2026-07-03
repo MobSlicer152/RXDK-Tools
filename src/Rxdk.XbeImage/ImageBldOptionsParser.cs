@@ -33,6 +33,14 @@ public static class ImageBldOptionsParser
                 ParseDumpArguments(options, args, ref index);
                 return options;
             }
+
+            if (string.Equals(switchBody, "DXT", StringComparison.OrdinalIgnoreCase))
+            {
+                options.Mode = ImageBldParseMode.Dxt;
+                index = 1;
+                ParseDxtArguments(options, args, ref index);
+                return options;
+            }
         }
 
         while (index < args.Length)
@@ -73,6 +81,54 @@ public static class ImageBldOptionsParser
             }
 
             options.InputFilePath ??= arg;
+        }
+
+        if (options.InputFilePath is null)
+        {
+            options.ShowUsage = true;
+        }
+    }
+
+    // imagebld -DXT <input.dxt> [output.dxt]   (in-place if no output given)
+    private static void ParseDxtArguments(ImageBldOptions options, string[] args, ref int index)
+    {
+        while (index < args.Length)
+        {
+            var arg = args[index++];
+
+            if (IsSwitch(arg))
+            {
+                var switchBody = arg[1..];
+                if (string.Equals(switchBody, "?", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(switchBody, "HELP", StringComparison.OrdinalIgnoreCase))
+                {
+                    options.ShowUsage = true;
+                    return;
+                }
+
+                if (TryMatchStringValue(switchBody, "IN", out var inValue))
+                {
+                    options.InputFilePath = inValue;
+                    continue;
+                }
+
+                if (TryMatchStringValue(switchBody, "OUT", out var outValue))
+                {
+                    options.OutputFilePath = outValue;
+                    continue;
+                }
+
+                throw new ImageBldParseException($"Unrecognized option {arg}.");
+            }
+
+            if (options.InputFilePath is null)
+            {
+                options.InputFilePath = arg;
+            }
+            else
+            {
+                options.OutputFilePath ??= arg;
+            }
         }
 
         if (options.InputFilePath is null)

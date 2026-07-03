@@ -25,6 +25,15 @@ internal static class Program
                 return 0;
             }
 
+            if (options.Mode == ImageBldParseMode.Dxt)
+            {
+                if (string.IsNullOrWhiteSpace(options.InputFilePath))
+                    throw new ImageBldParseException("Missing DXT file path for /DXT.");
+
+                DxtImagePatcher.Patch(options);
+                return 0;
+            }
+
             new XbeImageBuilder().Build(options);
             return 0;
         }

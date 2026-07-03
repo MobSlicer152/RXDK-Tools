@@ -23,6 +23,11 @@ public enum ImageBldParseMode
 {
     Build,
     Dump,
+
+    // Patch a linked DXT (debug-monitor extension) PE in place: coerce its
+    // subsystem to IMAGE_SUBSYSTEM_XBOX so it matches a retail .dxt. No XBE
+    // wrapping, no signing -- xbdm loads the raw PE from E:\dxt.
+    Dxt,
 }
 
 public sealed class ImageBldOptions

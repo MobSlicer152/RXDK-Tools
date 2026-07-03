@@ -23,5 +23,6 @@ internal static class Program
     {
         var exe = Path.GetFileName(Environment.ProcessPath) ?? "xbox-launch";
         Console.Error.WriteLine($"usage: {exe} /dir xe:\\path /title game.xbe [/cmd args] [/x console] [/reboot] [/timeout ms]");
+        Console.Error.WriteLine($"       {exe} /rebootonly [/x console]   (warm-reboot the kit, e.g. to reload E:\\dxt)");
     }
 }

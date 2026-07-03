@@ -38,6 +38,16 @@ public sealed class XboxLaunchRunner : IDisposable
         {
             _session = XbConsoleSession.Connect(options.ConsoleName);
             _debug = _session.Connection.Debug;
+
+            // Reboot-only: warm-reboot the kit and exit. Reloads E:\dxt debug-
+            // monitor extensions (xbdm re-scans E:\dxt at debug-monitor init).
+            if (options.RebootOnly)
+            {
+                _output.WriteLine("Rebooting Xbox (WARM)...");
+                _debug.Reboot(XbdmDebugConstants.DmbootWarm);
+                return XboxLaunchExitCode.Success;
+            }
+
             _debug.UseSharedConnection(true);
 
             OpenNotifySession();
