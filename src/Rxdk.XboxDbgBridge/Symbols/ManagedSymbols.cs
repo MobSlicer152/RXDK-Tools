@@ -180,28 +180,130 @@ internal sealed class ManagedSymbols
     private void EmitValue(string name, uint typeIndex, nuint address, KitMemoryAccess memory, VariableJson variables, string expandBase)
     {
         var type = _pdb.Types.Resolve(typeIndex);
+        var label = Describe(type, address, memory, out var expandable);
+        variables.Append(name, label, expandable, expandBase);
+    }
+
+    /// <summary>
+    /// Renders a resolved value for a single row: an aggregate/array shows a type summary and is
+    /// marked expandable; a scalar/pointer is formatted from its bytes. Modifiers (const/volatile) are
+    /// peeled first so a const struct or pointer is recognized rather than shown as a raw dword.
+    /// </summary>
+    private string Describe(PdbType type, nuint address, KitMemoryAccess memory, out bool expandable)
+    {
+        type = _pdb.Types.Peel(type.TypeIndex);
         switch (type.Kind)
         {
             case PdbTypeKind.Array:
             {
                 var elem = type.ReferentType != 0 ? _pdb.Types.Resolve(type.ReferentType) : null;
-                var label = elem?.Name is { Length: > 0 } en ? $"{en}[{type.ElementCount}]" : $"array[{type.ElementCount}]";
-                variables.Append(name, label, expandable: type.ElementCount > 0, expandBase: expandBase);
-                break;
+                expandable = type.ElementCount > 0;
+                return elem?.Name is { Length: > 0 } en ? $"{en}[{type.ElementCount}]" : $"array[{type.ElementCount}]";
             }
 
             case PdbTypeKind.Struct:
             case PdbTypeKind.Class:
             case PdbTypeKind.Union:
-            {
-                var label = type.Name is { Length: > 0 } tn ? tn : $"{{{type.ByteSize} bytes}}";
-                variables.Append(name, label, expandable: type.Members.Count > 0, expandBase: expandBase);
-                break;
-            }
+                expandable = type.Members.Count > 0;
+                return type.Name is { Length: > 0 } tn ? tn : $"{{{type.ByteSize} bytes}}";
 
             default:
-                variables.Append(name, FormatScalar(type, address, memory));
-                break;
+                expandable = false;
+                return FormatScalar(type, address, memory);
+        }
+    }
+
+    /// <summary>
+    /// Evaluates a watch/hover expression: a bare symbol, a register, or a member/index/deref chain
+    /// (<c>a.b</c>, <c>p-&gt;field</c>, <c>arr[2]</c>) over the current frame's locals or the program's
+    /// globals. This is the managed replacement for dbghelp's expression engine and works on every
+    /// platform. Returns false with a short <paramref name="error"/> token on any failure.
+    /// </summary>
+    internal bool TryEvaluate(string expression, ref XbdmContext context, KitMemoryAccess memory, out string value, out string? error)
+    {
+        value = string.Empty;
+        error = null;
+
+        if (!ExpressionPath.TryParse(expression, out var baseName, out var accessors))
+        {
+            error = "badExpression";
+            return false;
+        }
+
+        // A bare register name (EAX, ESP, ...) with no member/index chain reads straight from context.
+        if (accessors.Count == 0 && TryReadRegister(baseName, ref context, out var register))
+        {
+            value = $"0x{register:x8}";
+            return true;
+        }
+
+        if (!TryResolveBase(baseName, ref context, out var address, out var typeIndex))
+        {
+            error = "symbolNotFound";
+            return false;
+        }
+
+        var evaluator = new TypeEvaluator(_pdb.Types, a => memory.ReadDword((nuint)a));
+        if (!evaluator.TryWalk(address, typeIndex, accessors, out var finalAddress, out var finalType, out var walkError))
+        {
+            error = walkError ?? "evalFailed";
+            return false;
+        }
+
+        value = Describe(finalType, (nuint)finalAddress, memory, out _);
+        return true;
+    }
+
+    /// <summary>Resolves a base symbol name to its address and type: a frame local first, then a global.</summary>
+    private bool TryResolveBase(string name, ref XbdmContext context, out nuint address, out uint typeIndex)
+    {
+        address = 0;
+        typeIndex = 0;
+
+        var frame = FindFrame(context.Eip);
+        if (frame is not null)
+        {
+            var local = frame.Locals.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.Ordinal))
+                        ?? frame.Locals.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (local is not null)
+            {
+                address = (nuint)((long)context.Ebp + local.FrameOffset);
+                typeIndex = local.TypeIndex;
+                return true;
+            }
+        }
+
+        foreach (var global in _pdb.EnumerateGlobals())
+        {
+            if (global.IsPublic)
+                continue;
+            if (!string.Equals(global.Name, name, StringComparison.Ordinal) &&
+                !string.Equals(CleanGlobalName(global.Name), name, StringComparison.Ordinal))
+                continue;
+            if (!TryGlobalAddress(global, out address))
+                continue;
+            typeIndex = global.TypeIndex;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryReadRegister(string name, ref XbdmContext context, out uint value)
+    {
+        switch (name.ToUpperInvariant())
+        {
+            case "EAX": value = context.Eax; return true;
+            case "EBX": value = context.Ebx; return true;
+            case "ECX": value = context.Ecx; return true;
+            case "EDX": value = context.Edx; return true;
+            case "ESI": value = context.Esi; return true;
+            case "EDI": value = context.Edi; return true;
+            case "EBP": value = context.Ebp; return true;
+            case "ESP": value = context.Esp; return true;
+            case "EIP": value = context.Eip; return true;
+            case "EFLAGS": value = context.EFlags; return true;
+            default: value = 0; return false;
         }
     }
 

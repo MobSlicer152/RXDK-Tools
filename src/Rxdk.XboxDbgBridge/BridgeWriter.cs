@@ -6,6 +6,9 @@ internal static class BridgeWriter
 {
     private static readonly object Gate = new();
 
+    /// <summary>Gates verbose thread/stack/locals diagnostics written to stderr via <see cref="Log"/>.</summary>
+    internal static bool Diagnostics = true;
+
     internal static void Emit(string json)
     {
         lock (Gate)

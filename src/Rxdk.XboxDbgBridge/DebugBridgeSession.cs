@@ -877,7 +877,7 @@ internal sealed partial class DebugBridgeSession : IDisposable
         // The kit often lists 2+ threads; returning them all duplicates the call stack (N threads × M frames).
         if (_stoppedThread != 0 && IsThreadStoppedOnKit(_stoppedThread))
         {
-            if (Symbols.SymbolTypeEngine.LocalsDiagnostics)
+            if (BridgeWriter.Diagnostics)
                 BridgeWriter.Log($"threads-diag: stopped-only thread={_stoppedThread} raw=[{string.Join(',', raw)}]");
             BridgeWriter.Emit($"{{\"type\":\"result\",\"id\":{id},\"success\":true,\"threads\":[{_stoppedThread}]}}");
             return;
@@ -893,7 +893,7 @@ internal sealed partial class DebugBridgeSession : IDisposable
             if (seen.Add(t))
                 ordered.Add(t);
 
-        if (Symbols.SymbolTypeEngine.LocalsDiagnostics)
+        if (BridgeWriter.Diagnostics)
             BridgeWriter.Log($"threads-diag: raw=[{string.Join(',', raw)}] ordered=[{string.Join(',', ordered)}]");
 
         var payload = string.Join(',', ordered);
@@ -984,7 +984,7 @@ internal sealed partial class DebugBridgeSession : IDisposable
                 break;
             var nextEbp = BitConverter.ToUInt32(buffer);
 
-            if (Symbols.SymbolTypeEngine.LocalsDiagnostics)
+            if (BridgeWriter.Diagnostics)
                 BridgeWriter.Log(
                     $"stack-diag: frame={emitted - 1} addr=0x{address:x} ebp=0x{ebp:x} ret=0x{returnAddr:x} nextEbp=0x{nextEbp:x} name='{name}' {file}:{line}");
 
@@ -996,7 +996,7 @@ internal sealed partial class DebugBridgeSession : IDisposable
         }
 
         builder.Append("]}");
-        if (Symbols.SymbolTypeEngine.LocalsDiagnostics)
+        if (BridgeWriter.Diagnostics)
             BridgeWriter.Log($"stack-diag: threadId={threadId} emittedFrames={emitted}");
         BridgeWriter.Emit(builder.ToString());
     }

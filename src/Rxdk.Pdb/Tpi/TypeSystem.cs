@@ -32,6 +32,69 @@ public sealed class TypeSystem
     /// <summary>Convenience: byte size of a type index (0 if it cannot be determined).</summary>
     public uint SizeOf(uint typeIndex) => Resolve(typeIndex).ByteSize;
 
+    /// <summary>
+    /// Follows <see cref="PdbTypeKind.Modifier"/> wrappers (const/volatile) to the underlying type so
+    /// callers see the real struct/array/pointer kind rather than the modifier shell.
+    /// </summary>
+    public PdbType Peel(uint typeIndex)
+    {
+        var type = Resolve(typeIndex);
+        for (var guard = 0; type.Kind == PdbTypeKind.Modifier && type.ReferentType != 0 && guard < 8; guard++)
+            type = Resolve(type.ReferentType);
+        return type;
+    }
+
+    /// <summary>
+    /// Finds a data member by name within an aggregate, returning its byte offset (accumulated from
+    /// the outer type) and type index. Modifiers are peeled, an exact match is preferred over a
+    /// case-insensitive one, and anonymous (unnamed) member aggregates are searched recursively so a
+    /// field inside an anonymous union/struct resolves by its own name. Returns false for non-aggregates
+    /// or an unknown member.
+    /// </summary>
+    public bool TryFindMember(uint typeIndex, string name, out uint memberOffset, out uint memberType) =>
+        TryFindMemberCore(typeIndex, name, baseOffset: 0, out memberOffset, out memberType, depth: 0);
+
+    private bool TryFindMemberCore(uint typeIndex, string name, uint baseOffset, out uint memberOffset, out uint memberType, int depth)
+    {
+        memberOffset = 0;
+        memberType = 0;
+        if (depth > 8 || string.IsNullOrEmpty(name))
+            return false;
+
+        var type = Peel(typeIndex);
+        if (!type.IsAggregate)
+            return false;
+
+        foreach (var member in type.Members)
+        {
+            if (string.Equals(member.Name, name, StringComparison.Ordinal))
+            {
+                memberOffset = baseOffset + (uint)member.Offset;
+                memberType = member.TypeIndex;
+                return true;
+            }
+        }
+
+        foreach (var member in type.Members)
+        {
+            if (string.Equals(member.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                memberOffset = baseOffset + (uint)member.Offset;
+                memberType = member.TypeIndex;
+                return true;
+            }
+        }
+
+        foreach (var member in type.Members)
+        {
+            if (string.IsNullOrEmpty(member.Name) &&
+                TryFindMemberCore(member.TypeIndex, name, baseOffset + (uint)member.Offset, out memberOffset, out memberType, depth + 1))
+                return true;
+        }
+
+        return false;
+    }
+
     /// <summary>Looks up a struct/class/union/enum by name (its real, non-forward-ref definition).</summary>
     public bool TryFindByName(string name, out PdbType type)
     {

@@ -1,6 +1,3 @@
-using System.Text;
-using Rxdk.XboxDbgBridge.Interop;
-
 namespace Rxdk.XboxDbgBridge.Symbols;
 
 internal static class MapFileGlobals
@@ -93,15 +90,10 @@ internal static class MapFileGlobals
 
     private static string Undecorate(string mangled)
     {
-        // dbghelp's demangler is Windows-only; off Windows fall back to the raw decorated name
-        // (the managed PDB reader is the primary globals source there anyway).
-        if (!OperatingSystem.IsWindows())
-            return mangled;
-
-        var builder = new StringBuilder(256);
-        if (DbgHelpNative.UnDecorateSymbolName(mangled, builder, builder.Capacity, DbgHelpNative.UndnameNameOnly) == 0)
-            return mangled;
-        return builder.ToString();
+        // The .map fallback is a last resort behind the managed PDB reader (the primary globals
+        // source on every platform), so it keeps the raw decorated name rather than pulling in a
+        // demangler. C globals — the common case in the .map's title section — are already undecorated.
+        return mangled;
     }
 
     private static bool TryParsePublicLine(
