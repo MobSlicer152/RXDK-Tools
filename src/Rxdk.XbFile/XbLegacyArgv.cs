@@ -34,6 +34,12 @@ public static class XbLegacyArgv
         {
             var arg = args[i];
 
+            if (LooksLikePosixPath(arg))
+            {
+                expanded.Add(arg);
+                continue;
+            }
+
             if (arg.Length >= 2 && arg[0] == '/' && IsNoLogo(arg))
             {
                 expanded.Add("/NOLOGO");
@@ -78,6 +84,15 @@ public static class XbLegacyArgv
             }
 
             if (arg.StartsWith("--", StringComparison.Ordinal))
+            {
+                expanded.Add(arg);
+                continue;
+            }
+
+            // A leading '/' followed by another path separator is a POSIX absolute
+            // path (e.g. /home/user/foo.xbe), not a legacy switch bundle. Xbox paths
+            // use drive letters + backslashes, so this is unambiguous.
+            if (LooksLikePosixPath(arg))
             {
                 expanded.Add(arg);
                 continue;
@@ -179,6 +194,15 @@ public static class XbLegacyArgv
         normalized = prefix + "o" + (reverse ? "-" : "") + char.ToLowerInvariant(sort);
         return true;
     }
+
+    /// <summary>
+    /// True when the argument is a POSIX absolute path (leading '/' followed by a
+    /// further path separator), so it must never be parsed as a legacy '/'-switch.
+    /// </summary>
+    private static bool LooksLikePosixPath(string arg) =>
+        arg.Length >= 2
+        && arg[0] == '/'
+        && arg.AsSpan(1).IndexOfAny('/', '\\') >= 0;
 
     private static bool IsNoLogo(string arg) =>
         arg.Length >= 2
