@@ -111,8 +111,8 @@ public sealed class DbiStream
             _ = r.ReadUInt16();               // Flags
             var symStream = r.ReadInt16();
             var symByteSize = r.ReadUInt32();
-            _ = r.ReadUInt32();               // C11ByteSize
-            _ = r.ReadUInt32();               // C13ByteSize
+            var c11ByteSize = r.ReadUInt32();
+            var c13ByteSize = r.ReadUInt32();
             _ = r.ReadUInt16();               // SourceFileCount
             _ = r.ReadUInt16();               // Padding
             _ = r.ReadUInt32();               // Unused2
@@ -129,6 +129,8 @@ public sealed class DbiStream
                 ObjectFileName = objName,
                 SymbolStreamIndex = symStream,
                 SymbolByteSize = symByteSize,
+                C11ByteSize = c11ByteSize,
+                C13ByteSize = c13ByteSize,
                 Contribution = contribution,
             });
         }

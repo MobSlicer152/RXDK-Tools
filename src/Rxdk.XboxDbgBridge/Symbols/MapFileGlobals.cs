@@ -93,6 +93,11 @@ internal static class MapFileGlobals
 
     private static string Undecorate(string mangled)
     {
+        // dbghelp's demangler is Windows-only; off Windows fall back to the raw decorated name
+        // (the managed PDB reader is the primary globals source there anyway).
+        if (!OperatingSystem.IsWindows())
+            return mangled;
+
         var builder = new StringBuilder(256);
         if (DbgHelpNative.UnDecorateSymbolName(mangled, builder, builder.Capacity, DbgHelpNative.UndnameNameOnly) == 0)
             return mangled;

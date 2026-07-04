@@ -7,7 +7,8 @@ namespace Rxdk.XboxDbgBridge.Symbols;
 
 internal sealed class SymbolService : IDisposable
 {
-    private bool _initialized;
+    private bool _initialized;    // dbghelp session live (Windows only)
+    private bool _managedMode;    // resolving via the managed Rxdk.Pdb reader (non-Windows)
     private ulong _pdbBase;
     private nuint _moduleBase;
     private string _loadedModule = string.Empty;
@@ -15,12 +16,17 @@ internal sealed class SymbolService : IDisposable
     private uint _mapLinkBase = 0x400000;
 
     // Pure-managed PDB reader, preferred over dbghelp for locals (dbghelp mis-parses the modern
-    // S_LOCAL/S_DEFRANGE records Zig/LLVM emit). Opened lazily from the loaded PDB path.
+    // S_LOCAL/S_DEFRANGE records Zig/LLVM emit) and the ONLY backend off Windows, where dbghelp
+    // is unavailable. Opened lazily from the loaded PDB path.
     private string _pdbPath = string.Empty;
     private PdbImage? _pdbImage;
     private bool _managedUnavailable;
 
-    internal bool IsAvailable => OperatingSystem.IsWindows();
+    // Symbols are available on every platform now: dbghelp on Windows, the managed reader elsewhere.
+    internal bool IsAvailable => true;
+
+    /// <summary>True once a PDB has been loaded through either backend.</summary>
+    private bool Loaded => _initialized || _managedMode;
 
     internal ulong PdbBase => _pdbBase;
 
@@ -38,11 +44,43 @@ internal sealed class SymbolService : IDisposable
 
     private void LoadModule(string imagePath, uint imageSize, string pdbPath, string? mapPath)
     {
-        if (!IsAvailable)
-            throw new PlatformNotSupportedException("DbgHelp symbols require Windows.");
-
         Unload();
 
+        if (OperatingSystem.IsWindows())
+        {
+            LoadModuleWithDbgHelp(imagePath, imageSize, pdbPath);
+        }
+        else
+        {
+            // Managed mode: no dbghelp. Use the PDB's link base (0x400000 for original-Xbox
+            // titles); the managed reader works in image RVAs, relocated to the kit module base.
+            _managedMode = true;
+            _loadedModule = Path.GetFileName(imagePath);
+            _pdbBase = 0x400000;
+        }
+
+        _pdbPath = pdbPath;
+        _pdbImage = null;
+        _managedUnavailable = false;
+
+        var map = string.IsNullOrWhiteSpace(mapPath)
+            ? Path.ChangeExtension(imagePath, ".map")
+            : mapPath;
+        if (File.Exists(map))
+        {
+            _mapPath = map;
+            _mapLinkBase = MapFileGlobals.ReadLinkBase(map) ?? 0x400000;
+        }
+        else
+        {
+            _mapPath = string.Empty;
+            _mapLinkBase = 0x400000;
+        }
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private void LoadModuleWithDbgHelp(string imagePath, uint imageSize, string pdbPath)
+    {
         if (!_initialized)
         {
             DbgHelpNative.SymSetOptions(DbgHelpNative.SymoptUndname | DbgHelpNative.SymoptLoadLines);
@@ -84,23 +122,6 @@ internal sealed class SymbolService : IDisposable
 
         _loadedModule = moduleName;
         _pdbBase = baseAddr;
-        _pdbPath = pdbPath;
-        _pdbImage = null;
-        _managedUnavailable = false;
-
-        var map = string.IsNullOrWhiteSpace(mapPath)
-            ? Path.ChangeExtension(imagePath, ".map")
-            : mapPath;
-        if (File.Exists(map))
-        {
-            _mapPath = map;
-            _mapLinkBase = MapFileGlobals.ReadLinkBase(map) ?? 0x400000;
-        }
-        else
-        {
-            _mapPath = string.Empty;
-            _mapLinkBase = 0x400000;
-        }
     }
 
     internal void Unload()
@@ -111,6 +132,7 @@ internal sealed class SymbolService : IDisposable
             _initialized = false;
         }
 
+        _managedMode = false;
         _pdbBase = 0;
         _moduleBase = 0;
         _loadedModule = string.Empty;
@@ -121,10 +143,10 @@ internal sealed class SymbolService : IDisposable
         _managedUnavailable = false;
     }
 
-    /// <summary>Builds a managed-locals reader over the loaded PDB, or null if it can't be used.</summary>
-    private ManagedSymbols? TryGetManaged()
+    /// <summary>Opens (once) the managed PDB reader over the loaded PDB path, or null if unavailable.</summary>
+    private PdbImage? TryGetPdbImage()
     {
-        if (_managedUnavailable || _moduleBase == 0 || string.IsNullOrEmpty(_pdbPath))
+        if (_managedUnavailable || string.IsNullOrEmpty(_pdbPath))
             return null;
 
         if (_pdbImage is null)
@@ -141,7 +163,17 @@ internal sealed class SymbolService : IDisposable
             }
         }
 
-        return new ManagedSymbols(_pdbImage, _moduleBase);
+        return _pdbImage;
+    }
+
+    /// <summary>Builds a managed-locals reader over the loaded PDB, or null if it can't be used.</summary>
+    private ManagedSymbols? TryGetManaged()
+    {
+        if (_moduleBase == 0)
+            return null;
+
+        var pdb = TryGetPdbImage();
+        return pdb is null ? null : new ManagedSymbols(pdb, _moduleBase);
     }
 
     internal nuint RelocateAddress(nuint pdbAddress)
@@ -175,8 +207,11 @@ internal sealed class SymbolService : IDisposable
     internal bool TryResolveLine(string file, uint line, out nuint address)
     {
         address = 0;
-        if (!_initialized || _pdbBase == 0)
+        if (!Loaded || _pdbBase == 0)
             return false;
+
+        if (_managedMode)
+            return TryResolveLineManaged(file, line, out address);
 
         if (TryLookupLineExact(file, line, out var pdbAddr) ||
             TryLookupLineFromFunction("_main", file, line, out pdbAddr) ||
@@ -195,8 +230,11 @@ internal sealed class SymbolService : IDisposable
         file = string.Empty;
         line = 0;
         function = string.Empty;
-        if (!_initialized)
+        if (!Loaded)
             return false;
+
+        if (_managedMode)
+            return TryAddressToLineManaged(kitAddress, out file, out line, out function);
 
         var pdbAddr = _moduleBase != 0 && _pdbBase != 0
             ? _pdbBase + (kitAddress - _moduleBase)
@@ -216,8 +254,56 @@ internal sealed class SymbolService : IDisposable
         return true;
     }
 
+    // Managed (dbghelp-free) line resolution. The reader works in image RVAs; convert to the PDB
+    // link-base address the rest of the service speaks, then relocate to the kit module base.
+    private bool TryResolveLineManaged(string file, uint line, out nuint address)
+    {
+        address = 0;
+        var pdb = TryGetPdbImage();
+        if (pdb is null || !pdb.TryResolveLine(file, line, out var rva))
+            return false;
+
+        var pdbAddr = (nuint)(_pdbBase + rva);
+        address = _moduleBase != 0 ? RelocateAddress(pdbAddr) : pdbAddr;
+        return true;
+    }
+
+    private bool TryAddressToLineManaged(nuint kitAddress, out string file, out uint line, out string function)
+    {
+        file = string.Empty;
+        line = 0;
+        function = string.Empty;
+
+        var pdb = TryGetPdbImage();
+        if (pdb is null)
+            return false;
+
+        // Kit runtime address -> image RVA.
+        nuint moduleBase = _moduleBase != 0 ? _moduleBase : (nuint)_pdbBase;
+        if (kitAddress < moduleBase)
+            return false;
+        var rva = (uint)(kitAddress - moduleBase);
+
+        if (pdb.TryFindFunctionName(rva, out var fn))
+            function = fn;
+
+        return pdb.TryFindLine(rva, out file, out line);
+    }
+
     internal string Diag()
     {
+        if (_managedMode)
+        {
+            var pdb = TryGetPdbImage();
+            var managed = new StringBuilder();
+            managed.Append($"pdbBase=0x{_pdbBase:x} symType=managed moduleBase=0x{_moduleBase:x}");
+            if (pdb is not null)
+                managed.Append($" lines={pdb.Lines.Entries.Count}");
+            if (pdb is not null && pdb.TryFindSymbolRva("_main", out var mainRva))
+                managed.Append($" _main=0x{_pdbBase + mainRva:x}");
+            return managed.ToString();
+        }
+
         if (!_initialized)
             return "pdbBase=0 symType=0";
 
@@ -239,9 +325,17 @@ internal sealed class SymbolService : IDisposable
     {
         value = string.Empty;
         error = null;
-        if (!_initialized || _pdbBase == 0)
+        if (!Loaded || _pdbBase == 0)
         {
             error = "symbolsNotLoaded";
+            return false;
+        }
+
+        if (_managedMode)
+        {
+            // The expression/type engine is still dbghelp-backed; watch/hover evaluation degrades
+            // gracefully off Windows (locals, globals, and line info remain fully managed).
+            error = "expressionsRequireWindows";
             return false;
         }
 
@@ -250,7 +344,7 @@ internal sealed class SymbolService : IDisposable
 
     internal void EmitLocals(ref Xbdm.XbdmContext context, VariableJson variables, KitMemoryAccess memory)
     {
-        if (!_initialized || _pdbBase == 0)
+        if (!Loaded || _pdbBase == 0)
             return;
 
         var managed = TryGetManaged();
@@ -267,12 +361,14 @@ internal sealed class SymbolService : IDisposable
             }
         }
 
-        CreateTypeEngine().EmitLocals(ref context, variables, memory);
+        // dbghelp type engine is the Windows-only fallback; off Windows the managed reader is all we have.
+        if (OperatingSystem.IsWindows())
+            CreateTypeEngine().EmitLocals(ref context, variables, memory);
     }
 
     internal bool TryEmitMembers(string symbolBase, ref Xbdm.XbdmContext context, KitMemoryAccess memory, VariableJson variables)
     {
-        if (!_initialized || _pdbBase == 0)
+        if (!Loaded || _pdbBase == 0)
             return false;
 
         var managed = TryGetManaged();
@@ -288,6 +384,9 @@ internal sealed class SymbolService : IDisposable
                 BridgeWriter.Log($"managed TryEmitMembers failed: {ex.Message}");
             }
         }
+
+        if (!OperatingSystem.IsWindows())
+            return false;
 
         return CreateTypeEngine().TryEmitMembers(symbolBase, ref context, memory, variables);
     }
