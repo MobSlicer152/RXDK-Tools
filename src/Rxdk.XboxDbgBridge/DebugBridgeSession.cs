@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Rxdk.KitConfig;
 using Rxdk.Xbdm;
 using Rxdk.Xbdm.Managed;
 
@@ -192,13 +193,35 @@ internal sealed partial class DebugBridgeSession : IDisposable
         if (string.IsNullOrWhiteSpace(console))
             console = Environment.GetEnvironmentVariable("RXDK_XBOX");
         if (string.IsNullOrWhiteSpace(console))
-            console = _client.GetDefaultConsoleName();
-        else
-            _client.SetDefaultConsoleName(console);
+            console = ResolveDefaultConsole();
 
+        _client.SetDefaultConsoleName(console);
         _connection = XbdmConnectHelper.Connect(_client, console);
         _debug = _connection.Debug;
         _debug.UseSharedConnection(true);
+    }
+
+    /// <summary>
+    /// Resolve the default console the same way xbcp / xbox-launch do: from the
+    /// shared KitConfig store (consoles.json on macOS/Linux, the registry on
+    /// Windows). This is what lets the bridge "just work" off the global default
+    /// console without the debug adapter passing one. Falls back to the client's
+    /// own default (Windows registry) so behaviour there is unchanged.
+    /// </summary>
+    private string ResolveDefaultConsole()
+    {
+        try
+        {
+            var name = KitConfigProvider.CreateDefault().Consoles.GetDefaultConsoleName();
+            if (!string.IsNullOrWhiteSpace(name))
+                return name;
+        }
+        catch
+        {
+            // Store unavailable/unreadable -- fall through to the client's default.
+        }
+
+        return _client.GetDefaultConsoleName();
     }
 
     private void EnsureNotifications()
