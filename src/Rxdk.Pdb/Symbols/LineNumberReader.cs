@@ -9,10 +9,13 @@ namespace Rxdk.Pdb.Symbols;
 public sealed record LineEntry(uint RvaStart, uint RvaEnd, uint Line, string File);
 
 /// <summary>
-/// Parses the CodeView C13 line-number info (DEBUG_S_LINES + DEBUG_S_FILECHECKSUMS subsections)
+/// Parses the CodeView "C13" line-number info (DEBUG_S_LINES + DEBUG_S_FILECHECKSUMS subsections)
 /// that follows the symbols in each module's MSF stream, producing an image-RVA ↔ (file, line)
 /// map. This is the managed replacement for dbghelp's SymGetLineFromAddr64 / SymGetLineFromName64,
 /// letting source-level debugging work off a PDB on non-Windows hosts.
+///
+/// "C13" is the modern CodeView debug-info format version (CV_SIGNATURE_C13 = 4) — it has nothing
+/// to do with the C11/C23 language standards; clang/Zig emit it for C++23 titles all the same.
 /// </summary>
 public sealed class LineNumberReader
 {

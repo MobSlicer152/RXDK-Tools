@@ -46,7 +46,7 @@ internal sealed class SymbolService : IDisposable
     {
         Unload();
 
-        if (OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows() && !ForceManagedSymbols())
         {
             LoadModuleWithDbgHelp(imagePath, imageSize, pdbPath);
         }
@@ -77,6 +77,12 @@ internal sealed class SymbolService : IDisposable
             _mapLinkBase = 0x400000;
         }
     }
+
+    // Testability: set RXDK_MANAGED_SYMBOLS=1 to exercise the managed (Linux/macOS) symbol path on
+    // Windows too, so "works on Windows" means "works everywhere". Off by default -- Windows keeps
+    // dbghelp (and its watch-expression support) until the type/expression engine is ported.
+    private static bool ForceManagedSymbols() =>
+        string.Equals(Environment.GetEnvironmentVariable("RXDK_MANAGED_SYMBOLS"), "1", StringComparison.Ordinal);
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private void LoadModuleWithDbgHelp(string imagePath, uint imageSize, string pdbPath)

@@ -16,7 +16,9 @@ public sealed class DbiModule
     /// <summary>
     /// Sizes of the C11 and C13 line-info substreams that follow the symbols in the module's MSF
     /// stream. Layout is [4-byte CV signature][symbols: SymbolByteSize-4][C11: C11ByteSize][C13:
-    /// C13ByteSize]. Modern toolchains (Zig/clang -gcodeview, XDK) emit C13; C11 is legacy/empty.
+    /// C13ByteSize]. NOTE: C11/C13 are CodeView debug-format versions (CV_SIGNATURE_C11 = 1,
+    /// CV_SIGNATURE_C13 = 4), NOT C language standards. Modern toolchains (Zig/clang -gcodeview,
+    /// XDK) emit the C13 format for any source language; C11 is the legacy encoding (usually empty).
     /// </summary>
     public required uint C11ByteSize { get; init; }
     public required uint C13ByteSize { get; init; }
