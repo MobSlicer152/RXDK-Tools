@@ -98,6 +98,7 @@ jobs:
             '| `out/publish/managed/win-x64/tools/xbmkdir.exe` |',
             '| `out/publish/managed/win-x64/tools/xbecopy.exe` |',
             '| `out/publish/managed/win-x64/tools/imagebld.exe` |',
+            '| `out/publish/managed/win-x64/tools/bundler.exe` |',
             '| `out/publish/managed/win-x64/tools/xbox-launch.exe` |',
             '| `out/publish/managed/win-x64/tools/xboxdbg-bridge.exe` |',
             '| `out/publish/managed/win-x64/tools/xbwatson.exe` |',
@@ -174,7 +175,7 @@ jobs:
             echo ""
             echo "| Path |"
             echo "|------|"
-            echo "| \`out/publish/managed/linux-x64/tools/\` (xbset, xbcp, xbdir, xbmkdir, xbecopy, imagebld, xbox-launch, xboxdbg-bridge, xbwatson, xbneighborhood) |"
+            echo "| \`out/publish/managed/linux-x64/tools/\` (xbset, xbcp, xbdir, xbmkdir, xbecopy, imagebld, bundler, xbox-launch, xboxdbg-bridge, xbwatson, xbneighborhood) |"
             echo "| \`out/publish/nuget/Rxdk.XboxDbgBridge.*.nupkg\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 

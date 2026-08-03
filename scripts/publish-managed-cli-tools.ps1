@@ -18,6 +18,7 @@ $cliTools = @(
     @{ Project = "Rxdk.XbDel\Rxdk.XbDel.csproj"; Name = "xbdel" },
     @{ Project = "Rxdk.XbeCopy\Rxdk.XbeCopy.csproj"; Name = "xbecopy" },
     @{ Project = "Rxdk.ImageBld\Rxdk.ImageBld.csproj"; Name = "imagebld" },
+    @{ Project = "Rxdk.Bundler\Rxdk.Bundler.csproj"; Name = "bundler" },
     @{ Project = "Rxdk.XboxLaunch.Cli\Rxdk.XboxLaunch.Cli.csproj"; Name = "xbox-launch" },
     @{ Project = "Rxdk.XboxDbgBridge.Cli\Rxdk.XboxDbgBridge.Cli.csproj"; Name = "xboxdbg-bridge" },
     @{ Project = "Rxdk.XbWatson\Rxdk.XbWatson.csproj"; Name = "xbwatson" },
