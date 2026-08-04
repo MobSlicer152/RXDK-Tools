@@ -1,4 +1,4 @@
-// Compiles a parsed .xap into the three build artifacts the XACT runtime + sample consume:
+﻿// Compiles a parsed .xap into the three build artifacts the XACT runtime + sample consume:
 //
 //   * XactSounds.h  - #defines mapping cue/wave friendly names to indices
 //   * <name>.xwb    - wave bank (WAVEBANKHEADER + WAVEBANKENTRY[] + PCM), per libxact
@@ -90,6 +90,11 @@ internal sealed class XactCompiler
     // Wave bank (.xwb)
     // =====================================================================
 
+    // WAVE_FORMAT_XBOX_ADPCM, and the fixed Xbox ADPCM block size (per channel):
+    // 64 samples packed into 36 bytes.
+    private const ushort WaveFormatXboxAdpcm = 0x0069;
+    private const int    XboxAdpcmBlockBytes = 36;
+
     // Per-entry loaded audio: PCM (from wav/aiff) or WMA (demuxed from an ASF .wma).
     private sealed class WaveEntryDesc
     {
@@ -146,14 +151,22 @@ internal sealed class XactCompiler
                 var wav = (ext == ".aif" || ext == ".aiff" || ext == ".aifc")
                     ? AiffReader.Read(wavPath)
                     : WavReader.Read(wavPath);
-                if (wav.FormatTag != 1)
+                // Xbox ADPCM (0x69) rides through untouched: the wave-bank mini-format has a
+                // PCM/ADPCM tag bit, so the bank carries the compressed blocks natively and the
+                // hardware decodes them. Anything else we cannot represent.
+                if (wav.FormatTag != 1 && wav.FormatTag != WaveFormatXboxAdpcm)
                     throw new XactBldException(
                         $"Wave '{name}' uses unsupported WAV format tag {wav.FormatTag} " +
-                        "(only uncompressed PCM, AIFF, and WMA are supported).");
-                ushort blockAlign = (ushort)(wav.Channels * (wav.BitsPerSample / 8));
+                        "(only uncompressed PCM, Xbox ADPCM, AIFF, and WMA are supported).");
+                bool isAdpcm = wav.FormatTag == WaveFormatXboxAdpcm;
+                // ADPCM keeps the block alignment declared in the source file's fmt chunk
+                // (64 samples per channel per 36-byte block).
+                ushort blockAlign = isAdpcm
+                    ? (ushort)(XboxAdpcmBlockBytes * wav.Channels)
+                    : (ushort)(wav.Channels * (wav.BitsPerSample / 8));
                 d = new WaveEntryDesc
                 {
-                    FormatTag = 1,
+                    FormatTag = (ushort)(isAdpcm ? WaveFormatXboxAdpcm : 1),
                     Channels = (ushort)wav.Channels,
                     SamplesPerSec = (uint)wav.SamplesPerSec,
                     AvgBytesPerSec = (uint)(wav.SamplesPerSec * blockAlign),
@@ -187,7 +200,9 @@ internal sealed class XactCompiler
             AlignStream(data, XwbAlignment);
             uint playStart = (uint)data.Length;
             data.Write(d.Data, 0, d.Data.Length);
-            uint fmt = ((uint)(d.Channels & 0x7) << 1)
+            uint tag = d.FormatTag == WaveFormatXboxAdpcm ? 1u : 0u;   // MINIFORMAT_TAG_ADPCM
+            uint fmt = tag
+                     | ((uint)(d.Channels & 0x7) << 1)
                      | ((d.SamplesPerSec & 0x7FFFFFF) << 4)
                      | ((d.BitsPerSample == 16 ? 1u : 0u) << 31);
             meta.Add((fmt, playStart, (uint)d.Data.Length));

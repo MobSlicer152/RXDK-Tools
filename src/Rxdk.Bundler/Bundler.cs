@@ -531,6 +531,13 @@ internal sealed class Bundler
         }
         uint totalSize = headerSize + CbData;
 
+        // The .rdf names its output path (out_packedresource, typically under Media\), and that
+        // directory does not necessarily exist in a fresh checkout -- create it rather than
+        // failing the build.
+        var xprDir = Path.GetDirectoryName(Path.GetFullPath(XprPath));
+        if (!string.IsNullOrEmpty(xprDir))
+            Directory.CreateDirectory(xprDir);
+
         using var fs = new FileStream(XprPath, FileMode.Create, FileAccess.Write);
         var w = new BinaryWriter(fs);
 
