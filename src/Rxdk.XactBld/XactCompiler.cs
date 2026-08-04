@@ -20,6 +20,7 @@
 //   WAVEBANKENTRY                       20 (DWORD fmt + 2*(DWORD,DWORD) regions)
 
 using System.Text;
+using AsfWma;
 
 namespace Rxdk.XactBld;
 
@@ -89,14 +90,27 @@ internal sealed class XactCompiler
     // Wave bank (.xwb)
     // =====================================================================
 
+    // Per-entry loaded audio: PCM (from wav/aiff) or WMA (demuxed from an ASF .wma).
+    private sealed class WaveEntryDesc
+    {
+        public ushort FormatTag;      // 1 = PCM, 0x0161 = WMAv2, 0x0160 = WMAv1
+        public ushort Channels;
+        public uint   SamplesPerSec;
+        public uint   AvgBytesPerSec;
+        public ushort BlockAlign;
+        public ushort BitsPerSample;
+        public byte[] ExtraData = Array.Empty<byte>();  // WMA codec setup (cbSize bytes)
+        public byte[] Data = Array.Empty<byte>();        // PCM samples, or raw WMA packets
+    }
+
     private (Dictionary<string, int> names, Dictionary<string, int> rates) BuildWaveBank(XapNode wb, string bankName)
     {
         var entries = wb.ChildrenNamed("Entry").ToList();
         var names = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var rates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-        var meta = new List<(uint fmt, uint playStart, uint playLen, uint loopStart, uint loopLen)>();
-        var data = new MemoryStream();
+        var descs = new List<WaveEntryDesc>();
+        bool anyWma = false;
 
         for (int i = 0; i < entries.Count; i++)
         {
@@ -106,54 +120,85 @@ internal sealed class XactCompiler
             var wavPath = ResolvePath(file);
             if (!File.Exists(wavPath))
                 throw new XactBldException($"Wave file not found: {wavPath}");
-
             var ext = Path.GetExtension(wavPath).ToLowerInvariant();
-            WavData wav;
+
+            WaveEntryDesc d;
             if (ext == ".wma")
             {
-                // WMA is a proprietary codec with no pure-.NET decoder, and this tool is
-                // deliberately self-contained (no ffmpeg shell-out). WMA is only ever used by
-                // XACT *streaming* wave banks, whose runtime support is a stub in this SDK, so the
-                // audio never plays regardless. Emit a short silent PCM placeholder so the title
-                // still builds, and warn loudly rather than pretending the track is present.
-                Console.Error.WriteLine(
-                    $"xactbld : warning : wave '{name}' is WMA ({Path.GetFileName(wavPath)}); native WMA " +
-                    "decode is unavailable, substituting a silent placeholder (streaming WMA playback is a runtime stub).");
-                wav = SilentPlaceholder();
-            }
-            else if (ext == ".aif" || ext == ".aiff" || ext == ".aifc")
-            {
-                wav = AiffReader.Read(wavPath);
+                // Demux the ASF container to the raw WMA packet stream + WAVEFORMATEX. The bank is
+                // then written as an RXWM container that libxact decodes to PCM on load.
+                var s = AsfWmaReader.Read(wavPath);
+                d = new WaveEntryDesc
+                {
+                    FormatTag = s.FormatTag,
+                    Channels = s.Channels,
+                    SamplesPerSec = s.SamplesPerSec,
+                    AvgBytesPerSec = s.AvgBytesPerSec,
+                    BlockAlign = s.BlockAlign,
+                    BitsPerSample = s.BitsPerSample,
+                    ExtraData = s.ExtraData,
+                    Data = s.WmaData,
+                };
+                anyWma = true;
             }
             else
             {
-                wav = WavReader.Read(wavPath);
+                var wav = (ext == ".aif" || ext == ".aiff" || ext == ".aifc")
+                    ? AiffReader.Read(wavPath)
+                    : WavReader.Read(wavPath);
+                if (wav.FormatTag != 1)
+                    throw new XactBldException(
+                        $"Wave '{name}' uses unsupported WAV format tag {wav.FormatTag} " +
+                        "(only uncompressed PCM, AIFF, and WMA are supported).");
+                ushort blockAlign = (ushort)(wav.Channels * (wav.BitsPerSample / 8));
+                d = new WaveEntryDesc
+                {
+                    FormatTag = 1,
+                    Channels = (ushort)wav.Channels,
+                    SamplesPerSec = (uint)wav.SamplesPerSec,
+                    AvgBytesPerSec = (uint)(wav.SamplesPerSec * blockAlign),
+                    BlockAlign = blockAlign,
+                    BitsPerSample = (ushort)wav.BitsPerSample,
+                    Data = wav.Pcm,
+                };
             }
-            if (wav.FormatTag != 1)
-                throw new XactBldException(
-                    $"Wave '{name}' uses unsupported WAV format tag {wav.FormatTag} " +
-                    "(only uncompressed PCM is ported; re-author ADPCM/XMA as PCM).");
 
             names[name] = i;
-            rates[name] = wav.SamplesPerSec;
-
-            // Pad the running data segment to alignment before this wave.
-            AlignStream(data, XwbAlignment);
-            uint playStart = (uint)data.Length;
-            data.Write(wav.Pcm, 0, wav.Pcm.Length);
-            uint playLen = (uint)wav.Pcm.Length;
-
-            uint fmt = PackMiniFormat(wav);
-            meta.Add((fmt, playStart, playLen, 0, 0));
+            rates[name] = (int)d.SamplesPerSec;
+            descs.Add(d);
         }
 
-        // Serialize: header + metadata table + data segment.
+        var bankFile = wb.Prop("Bank File");
+        if (string.IsNullOrWhiteSpace(bankFile))
+            throw new XactBldException($"Wave Bank '{bankName}' has no Bank File");
+
+        byte[] bankBytes = anyWma ? BuildRxwmBank(bankName, descs) : BuildXwbBank(bankName, descs);
+        WriteOutput(bankFile!, bankBytes);
+        return (names, rates);
+    }
+
+    // Standard PCM wave bank (WBND): WAVEBANKHEADER + WAVEBANKENTRY[] + aligned PCM data segment.
+    private static byte[] BuildXwbBank(string bankName, List<WaveEntryDesc> descs)
+    {
+        var meta = new List<(uint fmt, uint playStart, uint playLen)>();
+        var data = new MemoryStream();
+        foreach (var d in descs)
+        {
+            AlignStream(data, XwbAlignment);
+            uint playStart = (uint)data.Length;
+            data.Write(d.Data, 0, d.Data.Length);
+            uint fmt = ((uint)(d.Channels & 0x7) << 1)
+                     | ((d.SamplesPerSec & 0x7FFFFFF) << 4)
+                     | ((d.BitsPerSample == 16 ? 1u : 0u) << 31);
+            meta.Add((fmt, playStart, (uint)d.Data.Length));
+        }
+
         var outBytes = new MemoryStream();
         var w = new BinaryWriter(outBytes);
         w.Write(XwbSignature);
         w.Write(XwbVersion);
         w.Write((uint)0);               // dwFlags
-        w.Write((uint)entries.Count);   // dwEntryCount
+        w.Write((uint)descs.Count);     // dwEntryCount
         w.Write(XwbAlignment);          // dwAlignment
         WriteFixedString(w, bankName, FriendlyNameLen);
         foreach (var m in meta)
@@ -161,17 +206,40 @@ internal sealed class XactCompiler
             w.Write(m.fmt);
             w.Write(m.playStart);
             w.Write(m.playLen);
-            w.Write(m.loopStart);
-            w.Write(m.loopLen);
+            w.Write((uint)0);           // loopStart
+            w.Write((uint)0);           // loopLen
         }
         w.Write(data.ToArray());
         w.Flush();
+        return outBytes.ToArray();
+    }
 
-        var bankFile = wb.Prop("Bank File");
-        if (string.IsNullOrWhiteSpace(bankFile))
-            throw new XactBldException($"Wave Bank '{bankName}' has no Bank File");
-        WriteOutput(bankFile!, outBytes.ToArray());
-        return (names, rates);
+    // Private WMA container ("RXWM") that libxact's XactMaybeTranscodeWmaBank decodes to a standard
+    // WBND bank on load. Used when a bank has any WMA entry (the leak's mini-format has no WMA tag).
+    private static byte[] BuildRxwmBank(string bankName, List<WaveEntryDesc> descs)
+    {
+        var outBytes = new MemoryStream();
+        var w = new BinaryWriter(outBytes);
+        w.Write((byte)'R'); w.Write((byte)'X'); w.Write((byte)'W'); w.Write((byte)'M');
+        w.Write((uint)1);               // version
+        w.Write((uint)descs.Count);
+        WriteFixedString(w, bankName, FriendlyNameLen);
+        foreach (var d in descs)
+        {
+            w.Write((ushort)d.FormatTag);
+            w.Write((ushort)d.Channels);
+            w.Write((uint)d.SamplesPerSec);
+            w.Write((uint)d.AvgBytesPerSec);
+            w.Write((ushort)d.BlockAlign);
+            w.Write((ushort)d.BitsPerSample);
+            w.Write((ushort)d.ExtraData.Length);
+            w.Write((ushort)0);         // reserved
+            w.Write((uint)d.Data.Length);
+            w.Write(d.ExtraData);
+            w.Write(d.Data);
+        }
+        w.Flush();
+        return outBytes.ToArray();
     }
 
     private static uint PackMiniFormat(WavData wav)
