@@ -63,6 +63,31 @@ public sealed class TpiStream
         return new TpiStream(version, begin, end, records, starts, lens);
     }
 
+    /// <summary>
+    /// Builds a TpiStream from a raw CodeView type-record region that has NO PDB TPI header — the
+    /// form found in a COFF <c>.debug$T</c> section (after its 4-byte CV signature). Records are
+    /// length-prefixed exactly as in the TPI stream and are assigned sequential type indices from
+    /// <paramref name="begin"/> (0x1000 for object-file type streams).
+    /// </summary>
+    public static TpiStream FromTypeRecords(byte[] records, uint begin = 0x1000)
+    {
+        var starts = new List<int>();
+        var lens = new List<int>();
+        var rr = new LeReader(records);
+        while (rr.Remaining >= 2)
+        {
+            var len = rr.ReadUInt16();
+            if (len == 0 || rr.Remaining < len)
+                break;
+            starts.Add(rr.Position);
+            lens.Add(len);
+            rr.Position += len;
+        }
+
+        var end = begin + (uint)starts.Count;
+        return new TpiStream(0, begin, end, records, starts.ToArray(), lens.ToArray());
+    }
+
     /// <summary>Number of record-backed types (i.e. TypeIndexEnd - TypeIndexBegin).</summary>
     public int RecordCount => _recordStart.Length;
 
