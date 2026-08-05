@@ -60,6 +60,26 @@ Translation and optimiser have to land together to be acceptance-testable: which
 operations share an instruction is the optimiser's decision, so translation alone
 cannot reproduce the goldens.
 
+Three things about `D3DTokensToUCode` that are not obvious until you are inside
+it, and that shape how the port has to be written:
+
+**It is not a 1:1 translation.** Several opcodes expand into several instructions:
+`m4x4`/`m4x3`/`m3x4`/`m3x3`/`m3x2` become a run of `dp4`/`dp3`, and `frc` becomes
+up to three instructions *and* needs a free temporary, which it finds by scanning
+a written-register table and fails the assembly if none is free. It performs
+these expansions by building a synthetic token array and calling **itself**
+recursively, then splicing the result — so the port needs the same re-entrant
+shape rather than a flat loop.
+
+**`inputs` is a slot bitmask, not a count** — bit 0 = A, bit 1 = B, bit 2 = C.
+It falls out of what the hardware computes: `mul` is A·B (3), `add` is A+C (5),
+`mad` is A·B+C (7), and the ILU ops read C alone (4). `outputs` is a small enum:
+1 MAC, 2 ILU, 3 address register, 0 none.
+
+**Two D3D8 opcodes are not their own microcode op.** `sub` is `MAC_ADD` with the
+C operand negated (`cne`), and `mov` into `a0` is `MAC_ARL`, not `MAC_MOV` —
+detected by inspecting the destination register rather than the opcode.
+
 The `.xvu` container: two characters (`'x'` plus `' '` ordinary / `'w'`
 read/write / `'s'` state), a WORD instruction count, then 16 bytes per
 instruction. The leading DWORD reads as `0x2078` only because that is `'x'`
