@@ -40,8 +40,23 @@ which one a value means depends on whether it feeds the RGB or the alpha combine
 writes a `.xpu`. `PixelInstructions.cs` holds the per-instruction combiner
 lowering, `PixelShaderCompiler.cs` the driver.
 
-**Vertex back end: not yet ported** — NV2A microcode plus the MAC/ILU pairing
-optimiser in `api.cpp`. `.vsh` input is rejected rather than half-assembled.
+**Vertex back end: encoding done, translation not.** `VertexMicrocode.cs` has the
+128-bit instruction layout and the `.xvu` container, verified by round-tripping
+all 53 goldens byte-exact (`xsasm --verify-xvu file.xvu`). What remains is the
+translation from the D3D8 token stream to microcode, plus `api.cpp`'s MAC/ILU
+pairing optimiser. `.vsh` input is rejected rather than half-assembled.
+
+The `.xvu` container: two characters (`'x'` plus `' '` ordinary / `'w'`
+read/write / `'s'` state), a WORD instruction count, then 16 bytes per
+instruction. The leading DWORD reads as `0x2078` only because that is `'x'`
+followed by a space.
+
+An instruction drives two units at once — the MAC (mul/add/mad/dp3/dp4/min/max/
+slt/sge/arl) and the ILU (rcp/rsq/exp/log/lit) — over three shared operand slots
+A, B, C. That is what "pairing" means: two source operations fit in one
+instruction when one is a MAC op and the other an ILU op. Reproducing the
+goldens therefore needs the optimiser, not just the translation, since it decides
+which operations get paired.
 
 **Preprocessor: not yet ported.** 29 of the 30 parse failures are `#include` or
 `#ifdef` — a separate pass in the original too (`xsasm /P` skips it,

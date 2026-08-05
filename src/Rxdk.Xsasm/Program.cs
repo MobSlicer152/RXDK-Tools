@@ -24,6 +24,28 @@ if (args.Length == 0 || args.Contains("/?") || args.Contains("--help"))
     return args.Length == 0 ? 1 : 0;
 }
 
+// Round-trips a .xvu through the microcode bitfield encoder. Any packing error
+// shows up as a byte difference, which is the only way to be sure the 128-bit
+// layout is right before anything starts generating it.
+if (args.Contains("--verify-xvu"))
+{
+    string xvu = args.First(a => a.EndsWith(".xvu", StringComparison.OrdinalIgnoreCase));
+    byte[] original = File.ReadAllBytes(xvu);
+    var (kind, code) = XvuFile.Read(original);
+    byte[] repacked = XvuFile.Write(kind, code);
+
+    if (original.AsSpan().SequenceEqual(repacked))
+    {
+        Console.WriteLine($"OK   {Path.GetFileName(xvu)}  ({code.Count} instructions, {kind})");
+        return 0;
+    }
+
+    int at = 0;
+    while (at < original.Length && original[at] == repacked[at]) at++;
+    Console.WriteLine($"FAIL {Path.GetFileName(xvu)}  first difference at byte {at}");
+    return 1;
+}
+
 bool dumpTokens = args.Contains("--tokens");
 string? path = args.FirstOrDefault(a => !a.StartsWith('-'));
 
