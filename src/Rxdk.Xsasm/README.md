@@ -26,8 +26,19 @@ reverse-engineering the output format.
 Verified by parsing every shader in the XDK sample corpus: **85 of 115 clean**, and
 all 30 remaining failures are accounted for (below) rather than unexplained.
 
+**Combiner layer: complete** (`PixelCombiners.cs`). The NV2A `PS_*` encodings and
+the four tables that map D3D8 onto them — source modifier to input mapping, its
+inversion, register file/number to combiner register, and texture opcode to
+addressing mode — all transcribed from `d3d8types.h` and `pixelshader.cpp`.
+
+Worth knowing when reading it: there is no literal "1" register. Constants are
+spelled as the ZERO register put through an input mapping, so `1` is `invert(0)`
+and `-1` is `expand(0)`. And `PS_CHANNEL_RGB` and `PS_CHANNEL_BLUE` are both 0 —
+which one a value means depends on whether it feeds the RGB or the alpha combiner.
+
 **Back ends: not yet ported.** The D3D8 token stream still has to be lowered to
-hardware form — a `D3DPIXELSHADERDEF` for pixel shaders (`pixelshader.cpp`), NV2A
+hardware form — a `D3DPIXELSHADERDEF` for pixel shaders (`pixelshader.cpp`'s
+`CompilePixelShaderToUCode` plus its per-instruction combiner handlers), NV2A
 microcode plus the MAC/ILU pairing optimiser for vertex shaders (`api.cpp`).
 `PixelShaderDef.cs` has the 60-DWORD container and the `PSB0` file tag; nothing
 fills it in yet. Until that lands, this tool only exposes `--tokens`.
