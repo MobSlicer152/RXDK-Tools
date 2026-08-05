@@ -1,4 +1,4 @@
-﻿// Compiles a parsed .xap into the three build artifacts the XACT runtime + sample consume:
+// Compiles a parsed .xap into the three build artifacts the XACT runtime + sample consume:
 //
 //   * XactSounds.h  - #defines mapping cue/wave friendly names to indices
 //   * <name>.xwb    - wave bank (WAVEBANKHEADER + WAVEBANKENTRY[] + PCM), per libxact
@@ -34,7 +34,14 @@ internal sealed class XactCompiler
     private const int EvtMarker = 10;
 
     private const uint XsbSignature = 0x4B424453; // 'KBDS' -> "SDBK" on disk (LE)
-    private const uint XsbVersion = 1;
+    // Bumped 1 -> 2 when wCategory was added to the sound entry. The entry stride
+    // changed, so libxact cannot read a v1 bank with the v2 struct -- but it
+    // validates the version strictly and rejects a mismatch outright, so a stale
+    // .xsb gives a clean error instead of misread audio. Rebuild banks.
+    private const uint XsbVersion = 2;
+
+    // Matches XACT_SOUNDBANK_CATEGORY_UNUSED in libxact's xactp.h.
+    private const int CategoryUnused = 0xFFFF;
     private const uint XwbSignature = 0x444E4257; // 'DNBW' -> "WBND" on disk (LE)
     private const uint XwbVersion = 2;
     private const uint XwbAlignment = 2048;
@@ -62,6 +69,17 @@ internal sealed class XactCompiler
             if (!layerIndex.ContainsKey(nm)) layerIndex[nm] = layerIndex.Count;
         }
 
+        // Sound categories, indexed in declaration order. This MUST match the order
+        // the XACT_CATEGORY_<NAME> enumerators are emitted in the generated header,
+        // because a title passes one of those enumerators to GlobalPause /
+        // SetMasterVolume and libxact compares it against what is in the bank.
+        var categoryIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var cat in _root.ChildrenNamed("Sound Category"))
+        {
+            var nm = cat.Prop("Name") ?? "";
+            if (!categoryIndex.ContainsKey(nm)) categoryIndex[nm] = categoryIndex.Count;
+        }
+
         var waveBanks = _root.ChildrenNamed("Wave Bank").ToList();
         var soundBanks = _root.ChildrenNamed("Sound Bank").ToList();
 
@@ -80,7 +98,7 @@ internal sealed class XactCompiler
 
         // ---- Build every sound bank (.xsb) ----
         foreach (var sb in soundBanks)
-            BuildSoundBank(sb, layerIndex, waveEntryIndex, waveEntryRate);
+            BuildSoundBank(sb, layerIndex, categoryIndex, waveEntryIndex, waveEntryRate);
 
         // ---- Emit the C header (+ optional cue-list text file) ----
         EmitHeader(waveBanks, soundBanks);
@@ -273,6 +291,7 @@ internal sealed class XactCompiler
     private void BuildSoundBank(
         XapNode sb,
         Dictionary<string, int> layerIndex,
+        Dictionary<string, int> categoryIndex,
         Dictionary<string, Dictionary<string, int>> waveEntryIndex,
         Dictionary<string, Dictionary<string, int>> waveEntryRate)
     {
@@ -289,6 +308,7 @@ internal sealed class XactCompiler
         var soundWaveBankNames = new List<List<string>>();   // distinct wave-bank names per sound
         var soundTracks = new List<List<byte[]>>();          // per sound: per track: event bytes
         var soundLayers = new List<int>();
+        var soundCategories = new List<int>();   // index, or CategoryUnused
 
         foreach (var snd in sounds)
         {
@@ -316,13 +336,21 @@ internal sealed class XactCompiler
             soundTracks.Add(tracks);
             var layerName = snd.Prop("Layer") ?? "";
             soundLayers.Add(layerIndex.TryGetValue(layerName, out var li) ? li : 0);
+
+            // A Sound names its category by name (`Category = SFX;`). A sound with
+            // none, or one naming a category the project never declared, gets the
+            // unused sentinel rather than index 0 -- otherwise it would silently
+            // join whichever category happened to be declared first.
+            var catName = snd.Prop("Category") ?? "";
+            soundCategories.Add(categoryIndex.TryGetValue(catName, out var ci) ? ci : CategoryUnused);
         }
 
         int nSounds = sounds.Count;
         int nCues = cues.Count;
 
         // ---- Compute absolute file offsets (cumulative; matches filegen for 1 sound) ----
-        const int headerSize = 36, cueSize = 24, soundSize = 28, wbEntrySize = 20, trackSize = 8;
+        // soundSize is 30, not 28, since wCategory was added (see XsbVersion).
+        const int headerSize = 36, cueSize = 24, soundSize = 30, wbEntrySize = 20, trackSize = 8;
         int soundTableOff = headerSize + cueSize * nCues;
         int threeDOff = soundTableOff + soundSize * nSounds;
         int wavebankTableOff = threeDOff; // no 3D params emitted (no 3D sounds in ported samples)
@@ -376,6 +404,7 @@ internal sealed class XactCompiler
             w.Write((ushort)trkCount);                                    // wTrackCount
             w.Write((ushort)wbCount);                                     // wWaveBankCount
             w.Write((ushort)0);                                           // wSliderCount
+            w.Write((ushort)soundCategories[i]);                          // wCategory
 
             wbCursor += wbCount;
             trackCursor += trkCount;
