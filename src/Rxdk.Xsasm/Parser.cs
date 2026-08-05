@@ -369,9 +369,15 @@ internal sealed class Parser
 
         while (true)
         {
+            // Consume a RUN of signs, not just one. A negative constant offset
+            // reached through a macro reads as '+ -36' (c[index + VSC_...] where
+            // that symbol expands to -36), so the two arrive back to back.
             int sign = 1;
-            if ((char)_tok == '+') Advance();
-            else if ((char)_tok == '-') { sign = -1; Advance(); }
+            while ((char)_tok == '+' || (char)_tok == '-')
+            {
+                if ((char)_tok == '-') sign = -sign;
+                Advance();
+            }
 
             if (_tok == Tok.Num)
             {

@@ -58,9 +58,18 @@ instruction when one is a MAC op and the other an ILU op. Reproducing the
 goldens therefore needs the optimiser, not just the translation, since it decides
 which operations get paired.
 
-**Preprocessor: not yet ported.** 29 of the 30 parse failures are `#include` or
-`#ifdef` — a separate pass in the original too (`xsasm /P` skips it,
-`/p` runs only it). `preprocessor.cpp` is the source.
+**Preprocessor: complete** (`Preprocessor.cs`). `#include` with `-I` search paths,
+`#define`/`#undef` with object-like substitution, `#ifdef`/`#ifndef`/`#else`/
+`#endif`, `#pragma` passed through, and `#line` emission so errors point at the
+original source. `-P` skips it, matching the original's `/P`.
+
+It also implements the NVASM-style `macro name params` / `endm` facility, which
+is a real feature of `preprocessor.cpp` and not a `#define` — it spans lines and
+takes arguments, referenced in the body as `%param`.
+
+Corpus: **112 of 112 shaders parse.** The three files that do not (`wind.vsh`,
+`hairlighting.vsh`, `eyelighthalf.vsh`) carry no version line because they are
+`#include` fragments, not standalone shaders — failing on them is correct.
 
 ## The verification gate
 

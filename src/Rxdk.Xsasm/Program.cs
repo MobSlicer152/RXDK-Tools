@@ -61,8 +61,28 @@ if (!File.Exists(path))
     return 1;
 }
 
-string source = File.ReadAllText(path);
 var diags = new List<Diagnostic>();
+
+// -I adds an include search path, -D predefines a symbol, -P skips the
+// preprocessor entirely (the original spells these /I, /D and /P).
+var includePaths = new List<string>();
+var defines = new List<string>();
+
+for (int i = 0; i < args.Length - 1; i++)
+{
+    if (args[i] is "-I" or "/I") includePaths.Add(args[i + 1]);
+    else if (args[i] is "-D" or "/D") defines.Add(args[i + 1]);
+}
+
+string source = args.Contains("-P") || args.Contains("/P")
+    ? File.ReadAllText(path)
+    : new Preprocessor(includePaths, defines, diags).Process(path);
+
+if (diags.Any(d => d.IsError))
+{
+    foreach (var d in diags) Console.Error.WriteLine(d);
+    return 1;
+}
 
 ParseResult result;
 try
