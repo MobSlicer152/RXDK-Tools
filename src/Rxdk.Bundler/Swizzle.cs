@@ -70,4 +70,63 @@ internal static class Swizzle
         }
         return dest;
     }
+
+    // --- 3D -----------------------------------------------------------------
+    //
+    // Port of the Swizzler class in the public xgraphics.h (the same one
+    // XGSwizzleBox drives). Unlike GetMasks2 above it derives the U/V/W bit
+    // lanes by interleaving one bit at a time, which is what makes a non-cubic
+    // volume come out right: once an axis runs out of extent it simply stops
+    // claiming bits and the remaining axes keep interleaving.
+    //
+    private static void GetMasks3(uint width, uint height, uint depth,
+                                  out uint maskU, out uint maskV, out uint maskW)
+    {
+        maskU = 0;
+        maskV = 0;
+        maskW = 0;
+
+        uint i = 1;
+        uint j = 1;
+        uint k;
+
+        do
+        {
+            k = 0;
+            if (i < width)  { maskU |= j; k = (j <<= 1); }
+            if (i < height) { maskV |= j; k = (j <<= 1); }
+            if (i < depth)  { maskW |= j; k = (j <<= 1); }
+            i <<= 1;
+        }
+        while (k != 0);
+    }
+
+    /// <summary>
+    /// Full-volume 3D swizzle. Source is tightly packed (row pitch = width*bpp,
+    /// slice pitch = row pitch*height); destination is the swizzled buffer of
+    /// the same byte size.
+    /// </summary>
+    public static byte[] SwizzleBox3D(byte[] src, uint width, uint height, uint depth, uint bpp)
+    {
+        var dest = new byte[(int)(width * height * depth * bpp)];
+        GetMasks3(width, height, depth, out uint maskU, out uint maskV, out uint maskW);
+
+        for (uint z = 0; z < depth; z++)
+        {
+            uint sw = Deposit(z, maskW);
+            for (uint y = 0; y < height; y++)
+            {
+                uint sv = Deposit(y, maskV);
+                for (uint x = 0; x < width; x++)
+                {
+                    // Swizzler::Get3D() -- the three deposited coordinates OR together.
+                    uint offset = (Deposit(x, maskU) | sv | sw) * bpp;
+                    uint srcOff = ((z * height + y) * width + x) * bpp;
+                    for (uint b = 0; b < bpp; b++)
+                        dest[offset + b] = src[srcOff + b];
+                }
+            }
+        }
+        return dest;
+    }
 }

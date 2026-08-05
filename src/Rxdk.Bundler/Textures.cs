@@ -144,11 +144,11 @@ internal abstract class BaseTexture
     protected uint WriteSwizzledTextureData(byte[] bits, uint width, uint height, uint depth)
     {
         uint bpt = XboxFormats.BytesPerPixelFromFormat(Spec.XboxFormat);
-        if (depth != 1)
-            throw new BundlerException("Swizzled volume textures are not yet ported.");
-        byte[] swizzled = Swizzle.SwizzleRect2D(bits, width, height, bpt);
+        byte[] swizzled = depth == 1
+            ? Swizzle.SwizzleRect2D(bits, width, height, bpt)
+            : Swizzle.SwizzleBox3D(bits, width, height, depth, bpt);
         B.WriteData(swizzled);
-        return width * height * bpt;
+        return width * height * depth * bpt;
     }
 
     // WriteCompressedTextureData (basetexture.cpp): compress the A8R8G8B8 mip to DXT.

@@ -310,10 +310,49 @@ internal sealed class Bundler
         EndResource(rec, cube);
     }
 
-    // VolumeTexture is deferred: only one XDK sample (VolumeSprites) uses it, it
-    // needs a 3D swizzle + 3D resampler, and there is no prebuilt golden .xpr to
-    // validate byte-exactness against. Ported handlers cover every other type.
-    private void HandleVolumeTexture() => throw new BundlerException("VolumeTexture resources are not yet ported (only VolumeSprites uses them; needs 3D swizzle + resampler).");
+    // HandleVolumeTextureToken (bundler.cpp). Source/AlphaSource repeat, one per
+    // depth slice, so they accumulate in file order rather than overwriting.
+    private void HandleVolumeTexture()
+    {
+        var rec = BeginResource();
+        var vol = new VolumeTexture(this);
+        bool done = false;
+
+        while (!done)
+        {
+            var tok = _reader.GetNextToken();
+            string val = "";
+            if ((tok.Id & Tok.PROPERTY) != 0)
+                val = _reader.GetNextTokenString(tok.PropType);
+
+            switch (tok.Id)
+            {
+                case Tok.PROPERTY_NAME: rec.Name = val; break;
+                case Tok.PROPERTY_TEXTURE_SOURCE: vol.Sources.Add(val); break;
+                case Tok.PROPERTY_TEXTURE_ALPHASOURCE: vol.AlphaSources.Add(val); break;
+                case Tok.PROPERTY_TEXTURE_FILTER: vol.Filter = FilterFromString(val); break;
+                case Tok.PROPERTY_TEXTURE_FORMAT: vol.FormatName = val; break;
+                case Tok.PROPERTY_TEXTURE_WIDTH: vol.Width = ParseInt(val); break;
+                case Tok.PROPERTY_TEXTURE_HEIGHT: vol.Height = ParseInt(val); break;
+                case Tok.PROPERTY_VOLUMETEXTURE_DEPTH: vol.Depth = ParseInt(val); break;
+                case Tok.PROPERTY_TEXTURE_LEVELS: vol.Levels = ParseInt(val); break;
+                case Tok.CLOSEBRACE: done = true; break;
+                default: throw new BundlerException($"<{tok.Keyword}> is not a volume texture property.");
+            }
+        }
+
+        // Report like a texture rather than going through the silent EndResource:
+        // a volume is the one resource whose size is easy to get wrong (slices x
+        // mips), so the byte count is worth seeing in the build log.
+        uint offset = CbHeader;
+        vol.SaveToBundle(out _, out uint cbData);
+        rec.Offset = offset;
+        _resources.Add(rec);
+
+        if (!Quiet)
+            Console.WriteLine($"VolumeTexture: Wrote {rec.Identifier} out in format {vol.FormatName} " +
+                              $"({vol.Width}x{vol.Height}x{vol.Depth}, {vol.Levels} level(s), {cbData} bytes)");
+    }
 
     private ResourceRecord BeginResource()
     {
