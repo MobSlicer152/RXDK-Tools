@@ -44,6 +44,14 @@ internal static class Registers
         ("_hemi1", Isa.SrcModSignNeg),
         ("_hemi2", Isa.SrcModComp),
         ("_hemi3", Isa.SrcModSat),
+        // Not in the leak's table, which knows only _hemi1.._hemi3 and would reject
+        // HQBumpShader.psh -- a file that ships an assembled .xpu beside it, so 5849
+        // clearly accepts the bare spelling. Its encoding is read back OUT of that
+        // golden rather than guessed: `texm3x2tex t3, t1_hemi` lands as dotMap[3] =
+        // 0x7 (HILO_HEMISPHERE), which is the D3DSPSM_SAT row -- i.e. an alias of
+        // _hemi3. The same file's `t0_bx2` lands as 0x1, confirming the table's
+        // alignment independently.
+        ("_hemi", Isa.SrcModSat),
     };
 
     /// <summary>

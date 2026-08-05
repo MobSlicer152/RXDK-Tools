@@ -59,7 +59,36 @@ foreach (var d in diags)
 if (diags.Any(d => d.IsError))
     return 1;
 
-if (dumpTokens)
+if (!dumpTokens)
+{
+    if (result.Kind != ShaderKind.Pixel)
+    {
+        Console.Error.WriteLine("xsasm: the vertex back end is not ported yet");
+        return 1;
+    }
+
+    PixelShaderDef psd;
+    try
+    {
+        // The boundary is ps.1.0, not "not xps": ps.1.1 shaders (Glass, sky) lower
+        // exactly like xps in the goldens, while ps.1.0 (dolphin, pshader) does not.
+        bool legacy = !result.Xbox && result.VersionMajor == 1 && result.VersionMinor == 0;
+        psd = new PixelShaderCompiler(diags, legacy).Compile(result.Code);
+    }
+    catch (AssemblyException ex)
+    {
+        Console.Error.WriteLine($"{path} : error: {ex.Message}");
+        return 1;
+    }
+
+    // Default output name matches the original: <source>.xpu for a pixel shader.
+    string outPath = args.SkipWhile(a => a != "-o").Skip(1).FirstOrDefault()
+                     ?? Path.ChangeExtension(path, ".xpu");
+
+    File.WriteAllBytes(outPath, psd.ToBytes(withFileId: true));
+    return 0;
+}
+
 {
     string kind = result.Kind == ShaderKind.Pixel ? "pixel" : "vertex";
     string flavour = result.Xbox ? "xbox" : "dx8";

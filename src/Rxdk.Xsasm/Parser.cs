@@ -138,7 +138,14 @@ internal sealed class Parser
         return n;
     }
 
-    /// <summary>def cN, f, f, f, f</summary>
+    /// <summary>
+    /// def cN, f, f, f, f
+    ///
+    /// The constant is emitted INTO the token stream as a D3DSIO_DEF instruction
+    /// followed by the register and four raw floats, not kept beside it: the pixel
+    /// back end reads its constants by walking the stream, so a def held anywhere
+    /// else silently assembles to a shader whose constants are all zero.
+    /// </summary>
     private void ParseConstant()
     {
         uint reg = ParseRegister();
@@ -152,6 +159,11 @@ internal sealed class Parser
         }
 
         _result.Constants[num] = v;
+
+        _result.Code.Add((uint)Op.Def);
+        _result.Code.Add(reg | Isa.WriteMaskAll);
+        foreach (float f in v)
+            _result.Code.Add(BitConverter.SingleToUInt32Bits(f));
     }
 
     private float ParseValue()

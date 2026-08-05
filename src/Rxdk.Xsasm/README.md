@@ -36,12 +36,12 @@ spelled as the ZERO register put through an input mapping, so `1` is `invert(0)`
 and `-1` is `expand(0)`. And `PS_CHANNEL_RGB` and `PS_CHANNEL_BLUE` are both 0 —
 which one a value means depends on whether it feeds the RGB or the alpha combiner.
 
-**Back ends: not yet ported.** The D3D8 token stream still has to be lowered to
-hardware form — a `D3DPIXELSHADERDEF` for pixel shaders (`pixelshader.cpp`'s
-`CompilePixelShaderToUCode` plus its per-instruction combiner handlers), NV2A
-microcode plus the MAC/ILU pairing optimiser for vertex shaders (`api.cpp`).
-`PixelShaderDef.cs` has the 60-DWORD container and the `PSB0` file tag; nothing
-fills it in yet. Until that lands, this tool only exposes `--tokens`.
+**Pixel back end: working, 14 of the 15 goldens byte-exact.** `xsasm shader.psh`
+writes a `.xpu`. `PixelInstructions.cs` holds the per-instruction combiner
+lowering, `PixelShaderCompiler.cs` the driver.
+
+**Vertex back end: not yet ported** — NV2A microcode plus the MAC/ILU pairing
+optimiser in `api.cpp`. `.vsh` input is rejected rather than half-assembled.
 
 **Preprocessor: not yet ported.** 29 of the 30 parse failures are `#include` or
 `#ifdef` — a separate pass in the original too (`xsasm /P` skips it,
@@ -54,13 +54,40 @@ matched `.psh`/`.xpu` pairs and 52 matched `.vsh`/`.xvu` pairs**. Those are the
 acceptance test — a back end is done when it reproduces them byte for byte, not
 when it produces something plausible.
 
-## A 5849-vs-leak gap found while testing
+## Three 5849-vs-leak differences the goldens forced out
 
-`HighQualityBumpMapping/HQBumpShader.psh` uses a bare `t1_hemi` source modifier.
-The leak's `DecodeRegister` compares the whole suffix and knows only `_hemi1`,
-`_hemi2`, `_hemi3` and `_hl` — so the January-2002 assembler would reject this
-file. It nonetheless ships a golden `.xpu`, so 5849's `xsasm` accepts it.
+The leak is January 2002; the XDK is 5849. Each of these was found by a golden
+refusing to match, and resolved from the goldens rather than by guessing.
 
-Deliberately left failing rather than guessed at: once the pixel back end exists,
-that golden `.xpu` states which modifier bits `_hemi` encodes to. Guessing now
-would risk a plausible-but-wrong shader, which is worse than a clean error.
+**`_hemi` exists.** `HQBumpShader.psh` uses a bare `t1_hemi`, which the leak's
+`DecodeRegister` rejects — it knows only `_hemi1`.`_hemi3` and `_hl`. Its
+encoding was read back out of the golden: `texm3x2tex t3, t1_hemi` lands as
+`dotMap[3] = 0x7` (`HILO_HEMISPHERE`), the `D3DSPSM_SAT` row, making it an alias
+of `_hemi3`. The same file's `t0_bx2` lands as `0x1`, confirming the table lines
+up independently.
+
+**`lrp` no longer forces its interpolant unsigned.** The leak unconditionally
+rewrites a non-unsigned first input to `UNSIGNED_IDENTITY`. Fire's golden keeps
+`SIGNED_IDENTITY`. Dropping the force cannot affect the D slot either way, since
+the inversion table sends both signed and unsigned identity to `UNSIGNED_INVERT`.
+
+**`ps.1.0` lowers differently from `ps.1.1`** — and the boundary is the version,
+not "stock DX8 vs Xbox": `ps.1.1` (Glass, sky) lowers exactly like `xps`. In
+`ps.1.0` an unmodified source decodes to `UNSIGNED_IDENTITY` rather than
+`SIGNED_IDENTITY` (a DX8 pixel shader clamps inputs to [0,1]), and the
+texture-mode adjust global flag stays clear. Both `ps.1.0` goldens agree on both
+points.
+
+## The one golden that does not match
+
+`PixelShader/pshader.psh` (`ps.1.0`) differs in `C0Mapping`, `C1Mapping` and
+`FinalCombinerConstants`: its golden writes zeros where the assembler writes the
+0xF "unused" sentinel. The other `ps.1.0` golden, `dolphin`, keeps the sentinel —
+so the two disagree with each other, and neither the leak source nor any rule
+derivable from two conflicting samples explains it. The port follows the source,
+which is unconditional here, and `dolphin` matches.
+
+Left as a known deviation rather than special-cased to make a number go up: a
+rule invented to fit one sample and contradicted by another is not a rule. Note
+the affected fields are constant *mappings*, used by `SetPixelShaderConstant` —
+neither shader references a constant at all, so nothing reads them here.
