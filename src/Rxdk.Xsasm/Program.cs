@@ -24,6 +24,15 @@ if (args.Length == 0 || args.Contains("/?") || args.Contains("--help"))
     return args.Length == 0 ? 1 : 0;
 }
 
+// Runs every acceptance gate against a tree of XDK samples. The corpus ships the
+// original assembler's own output beside its input, so this is a real regression
+// test rather than a self-check: `xsasm --verify-corpus <dir>`.
+if (args.Contains("--verify-corpus"))
+{
+    string root = args.SkipWhile(a => a != "--verify-corpus").Skip(1).FirstOrDefault() ?? ".";
+    return CorpusVerifier.Run(root);
+}
+
 // Round-trips a .xvu through the microcode bitfield encoder. Any packing error
 // shows up as a byte difference, which is the only way to be sure the 128-bit
 // layout is right before anything starts generating it.

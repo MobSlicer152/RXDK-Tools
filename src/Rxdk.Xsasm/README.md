@@ -42,9 +42,23 @@ lowering, `PixelShaderCompiler.cs` the driver.
 
 **Vertex back end: encoding done, translation not.** `VertexMicrocode.cs` has the
 128-bit instruction layout and the `.xvu` container, verified by round-tripping
-all 53 goldens byte-exact (`xsasm --verify-xvu file.xvu`). What remains is the
-translation from the D3D8 token stream to microcode, plus `api.cpp`'s MAC/ILU
-pairing optimiser. `.vsh` input is rejected rather than half-assembled.
+all 53 goldens byte-exact (`xsasm --verify-xvu file.xvu`). `.vsh` input is
+rejected rather than half-assembled.
+
+What remains, with where it lives in the leak
+(`private/windows/directx/dxg/xgraphics/shadeasm/api.cpp`):
+
+| Piece | Location |
+|---|---|
+| `D3DTokensToUCode` — token stream to instructions | `api.cpp:7755` (~550 lines) |
+| `InstructionsToMicrocode` — driver | `api.cpp:6838` |
+| `PeepholeOptimize` — MAC/ILU pairing | `api.cpp:5641` |
+| Pairing predicates | `InputsConflict_MAC_ILU` 5361, `OutputsConflict_MAC_ILU` 5429, `InputOutputDependency` 5465, `Pairable` 5614 |
+| Helpers | `ConvertToImv` 5518, `SwapAC` 5561, `StripMacInstruction` 5584 |
+
+Translation and optimiser have to land together to be acceptance-testable: which
+operations share an instruction is the optimiser's decision, so translation alone
+cannot reproduce the goldens.
 
 The `.xvu` container: two characters (`'x'` plus `' '` ordinary / `'w'`
 read/write / `'s'` state), a WORD instruction count, then 16 bytes per
@@ -77,6 +91,24 @@ The corpus carries the original assembler's own output next to its input: **15
 matched `.psh`/`.xpu` pairs and 52 matched `.vsh`/`.xvu` pairs**. Those are the
 acceptance test — a back end is done when it reproduces them byte for byte, not
 when it produces something plausible.
+
+Run every gate at once:
+
+```bash
+xsasm --verify-corpus /path/to/XDKSamples
+```
+
+```
+parse        112/112   (3 include fragments skipped)
+xpu golden   14/15 byte-exact   (1 known deviation)
+xvu encoding 53/53 round-trip byte-exact
+PASS
+```
+
+This compares against Microsoft's own bytes, not against this port's idea of the
+format, which is what makes it a regression test rather than a self-check. It is
+built into the tool rather than a script so it runs the same on every platform —
+the point of the port.
 
 ## Three 5849-vs-leak differences the goldens forced out
 
