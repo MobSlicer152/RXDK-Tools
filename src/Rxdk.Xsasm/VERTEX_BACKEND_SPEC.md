@@ -24,11 +24,19 @@ shader: on `billbrd` the golden keeps the authored registers, i.e. retail's
 `RemapVRegs` succeeds and reassigns. Enable it together with the Reorderer and
 resolve that remap-failure divergence against the goldens then.
 
-**Still stubbed (no-op):** `Reorderer` (3477) and `PeepholeOptimize` (5641) —
-both need `TLEngineSim` (1948), the NV2A vertex-pipeline stall model, to decide
-scheduling. That sim is the gating prerequisite for the timing-driven half of the
-pipeline. Most of the remaining ~41 `-N` goldens need rename + reorder together
-(the ~2000-line demanding stretch). The pixel back
+`TLEngineSim` (1948) — the cycle-accurate NV2A vertex-pipeline stall model, with
+its single-threaded (`STRegScoreboard`) and multithreaded (`RegScoreboard`,
+float cycles + shadow/bypass) scoreboards — is ported in `VertexStallSim.cs` and
+`PeepholeOptimize` (5641) is wired on top of it (ADD-arg-swap when it lowers the
+modelled stall). Enabling it held 11/52 (retail's PeepholeOptimize is a no-op on
+those shaders, and so is ours), which sanity-checks the sim's `CalculateStall`
+path. The sim's exact stall VALUES are only fully exercised once the Reorderer
+uses them.
+
+**Still stubbed (no-op):** `Reorderer` (3477) — the instruction scheduler
+(`RegSet` dirty-tracking + `FindInstruction`/`MoveInstruction`/`PairInstructions`,
+driven by `TLEngineSim.IsStall`). It plus the Renamer/billbrd fix are the last
+pieces; most of the remaining ~40 `-N` goldens need reorder (and rename) to land. The pixel back
 end, `VsInstruction` encoding, and `.xvu` container remain green (parse 112/112,
 xpu 14/15, xvu 53/53 round-trip).
 

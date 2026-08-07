@@ -13,7 +13,7 @@ namespace Rxdk.Xsasm;
 /// PeepholePair1/2) are stubbed no-ops pending their ports -- the `-N` goldens
 /// need them and stay red until then.
 /// </summary>
-internal static class VertexOptimizer
+internal static partial class VertexOptimizer
 {
     // Opcode / mux / swizzle constants, aliased to VsInstruction's for brevity.
     private const uint MAC_NOP = VsInstruction.MacNop, MAC_MOV = VsInstruction.MacMov,
@@ -49,7 +49,7 @@ internal static class VertexOptimizer
             if (globalOptimize) new DeadCodeStripper(stateShader).Run(program);
             if (globalOptimize && EnableRenamer) new Renamer().Run(program);
             if (globalOptimize) Reorderer(program);
-            if (globalOptimize) PeepholeOptimize(program);
+            if (globalOptimize) PeepholeOptimize(program, stateShader);
             if (optimize)       PeepholePair1(program);
             if (globalOptimize) PeepholePair2(program);
 
@@ -1287,8 +1287,25 @@ internal static class VertexOptimizer
     // Reorderer (api.cpp:3477) -- instruction scheduler.
     private static void Reorderer(List<VsInstruction> program) { }
 
-    // PeepholeOptimize (api.cpp:5641) -- ADD-arg-swap stall reduction.
-    private static void PeepholeOptimize(List<VsInstruction> program) { }
+    // PeepholeOptimize (api.cpp:5641): the second operand of an ADD does not
+    // stall, so swapping an ADD's A and C is faster when it lowers the modelled
+    // stall. Walks the program through the stall sim, adopting each beneficial swap.
+    private static void PeepholeOptimize(List<VsInstruction> program, bool stateShader)
+    {
+        var sim = new VertexStallSim();
+        sim.Initialize(!stateShader, program.Count);
+        for (int pc = 0; pc < program.Count; pc++)
+        {
+            VsInstruction pI = program[pc];
+            if (SwapAC(out var temp, pI)
+                && sim.CalculateStall(pI, out _) > sim.CalculateStall(temp, out _))
+            {
+                program[pc] = temp;
+                pI = temp;
+            }
+            sim.Do(pI, out _, out _);
+        }
+    }
 
     // Shared driver for the two pairers (api.cpp:6479, 6507): greedily fold each
     // instruction with the following ones while they keep pairing.
