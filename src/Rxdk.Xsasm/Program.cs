@@ -36,6 +36,16 @@ if (args.Contains("--verify-corpus"))
 // Round-trips a .xvu through the microcode bitfield encoder. Any packing error
 // shows up as a byte difference, which is the only way to be sure the 128-bit
 // layout is right before anything starts generating it.
+// Disassembles vertex microcode (a .xvu, or a .vsh assembled on the fly) to
+// readable instructions -- and, given two files, diffs them instruction-by-
+// instruction. The debugging tool for the vertex optimizer's byte-exact goldens.
+if (args.Contains("--disasm"))
+{
+    var files = args.SkipWhile(a => a != "--disasm").Skip(1)
+                    .Where(a => !a.StartsWith('-')).ToList();
+    return VsDisassembler.RunCli(files);
+}
+
 if (args.Contains("--verify-xvu"))
 {
     string xvu = args.First(a => a.EndsWith(".xvu", StringComparison.OrdinalIgnoreCase));
