@@ -43,9 +43,21 @@ symptom: our sim flags a stall + a bypass-movable candidate and reorders
 independent instructions where retail leaves program order (the `matinv` diff
 shows it moving instr 8's `mad r0` down to slot 10). So the scheduler logic is
 right; the divergence is **cycle-precision in `TLEngineSim`'s stall/bypass
-detection** on those two shaders. Nailing it wants a step-by-step sim trace vs
-retail (`--disasm` localizes the reorder; the stall values need a reference).
-Fix that + the Renamer/billbrd remap, then flip both on for a clean 19+/52. The pixel back
+detection** on those two shaders.
+
+Investigated (`XSASM_DBG_REORDER` traces reorder decisions; `--disasm` shows the
+result): on matinv (single-threaded state shader) our sim stalls `mul r0` (instr
+4) **5 cycles**, and that cascades -- at instr 8 `mad r0` stalls 2 and `mad r1`
+(instr 9) lands on its MLU-bypass cycle, so our reorderer pulls it forward; retail
+leaves program order. matinv *was* globally optimized in retail (our
+full-minus-reorderer matches its golden, so dead-code/peephole ran) and retail's
+reorderer was a no-op on it, so ours is simply over-eager. Every faithful-reading
+path leads back to "retail should reorder too," which means the true single-
+threaded stall values differ from ours in a way that isn't visible from the port
+alone. **Blocked on a reference trace** of retail's per-instruction stalls (build
+xgraphics.lib's debug `Print`, or the Xbox vertex-shader-processor stall
+whitepaper the code cites). Fix that + the Renamer/billbrd remap, then flip both
+gates on for a clean 19+/52. The pixel back
 end, `VsInstruction` encoding, and `.xvu` container remain green (parse 112/112,
 xpu 14/15, xvu 53/53 round-trip).
 

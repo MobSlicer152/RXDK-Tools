@@ -18,6 +18,9 @@ internal static partial class VertexOptimizer
 
         public Reorderer(bool isVertexShader) => _isVertexShader = isVertexShader;
 
+        private static readonly bool Dbg =
+            Environment.GetEnvironmentVariable("XSASM_DBG_REORDER") is not null;
+
         public void Run(List<VsInstruction> ucode)
         {
             _ucode = ucode;
@@ -27,20 +30,32 @@ internal static partial class VertexOptimizer
             for (int pc = 0; pc < _ucode.Count - 1; pc++)
             {
                 VsInstruction pI = _ucode[pc];
+                if (Dbg)
+                {
+                    float st = _sim.CalculateStall(pI, out _);
+                    if (st > 0) Console.Error.WriteLine($"[reorder] pc={pc} stall={st}: {VsDisassembler.Disassemble(pI)}");
+                }
                 if (_sim.IsStall(pI) && FindInstruction(pc, out int pc2a))
+                {
+                    if (Dbg) Console.Error.WriteLine($"[reorder]   MOVE {pc2a} -> {pc} (fill stall)");
                     MoveInstruction(pc, pc2a);
+                }
 
                 if (FindPairableInstruction(pc, out int pc3, out VsInstruction pair))
                 {
                     bool moved = false;
                     if (_sim.IsStall(pair) && FindInstruction(pc, out int pc2b))
                     {
+                        if (Dbg) Console.Error.WriteLine($"[reorder]   MOVE {pc2b} -> {pc} (pair stalls)");
                         MoveInstruction(pc, pc2b);
                         tryPairingAgain = true;
                         moved = true;
                     }
                     if (!moved)
+                    {
+                        if (Dbg) Console.Error.WriteLine($"[reorder]   PAIR {pc3} -> {pc}");
                         PairInstructions(pc, pc3, pair);
+                    }
                 }
 
                 _sim.Do(_ucode[pc], out _, out _);
