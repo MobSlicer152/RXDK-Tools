@@ -41,6 +41,12 @@ internal sealed class VertexShaderCompiler
             AppendPostfix(ucode);
         }
 
+        // Phase 2: run the optimizer over the translated + postfixed microcode,
+        // exactly as the assembler does before it finalizes (postfix is appended
+        // with eos=0, then XGOptimizeVertexShader runs, then eos is stamped on the
+        // final last instruction).
+        VertexOptimizer.Optimize(ucode, stateShader);
+
         if (ucode.Count > 136)
             Error("vertex shader exceeds the 136-instruction hardware limit");
 

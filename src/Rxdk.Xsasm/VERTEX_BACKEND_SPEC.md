@@ -1,12 +1,34 @@
 # NV2A vertex-shader back end — byte-exact port reference
 
-Status: **Phase 1 (translation) done and golden-verified; Phase 2 (optimizer)
-pending.** `VertexShaderCompiler.cs` translates `.vsh` tokens to `VsInstruction`s
-+ appends the screen-space postfix, and `--verify-corpus` reports **xvu golden
-7/52 byte-exact** — every unoptimized golden (source-length + 2) matches
-Microsoft's assembler exactly. The remaining 45 need co-issue pairing and the
-reorder/rename/pair optimizer (Phase 2, §5 below); until then a co-issued or
-`frc`/`exp`/`log` shader errors cleanly rather than mis-emitting. The pixel back
+Status: **Phase 1 (translation) done and golden-verified. Phase 2 (optimizer):
+framework + first pass landed; the heavy passes remain.** `VertexShaderCompiler.cs`
+translates `.vsh` tokens to `VsInstruction`s + appends the screen-space postfix,
+then runs `VertexOptimizer.Optimize`. `--verify-corpus` reports **xvu golden 11/52
+byte-exact** — the 7 unoptimized goldens (source-length + 2), plus 3 that need
+output-mask pairing + dead-code stripping, plus 1 that needs MAC+ILU co-issue.
+
+`VertexOptimizer.cs` ports the `XGOptimizeVertexShader` fixed-point driver and,
+so far, these passes byte-exact:
+- `PeepholePairOutputMasks` (`PairableMasks1/2`) — 6075
+- `DeadCodeStripper` — the backward-liveness class, 2766
+- `PeepholePair1`/`PeepholePair2` — the co-issue pairers, 6479/6507, on top of the
+  full pairing layer (`ForcedPair`/`ForcedPair2`, `Pairable`, `SequentialPairable`,
+  `PairableMulAdd`, `PairableMasks3`, `MergeRegisterOutputMasks`, `SwapAC`,
+  `ConvertToImv`, the swizzle-merge canonicalization, `InputOutputDependency`).
+
+`Renamer` (4383) is **ported but gated off** (`EnableRenamer = false`). It is
+coupled to the `Reorderer` — the driver runs them in sequence and the goldens
+capture their combined effect — so enabling it alone regresses at least one
+shader: on `billbrd` the golden keeps the authored registers, i.e. retail's
+`RemapVRegs` *fired but failed* (leaving the code unchanged), whereas our port's
+`RemapVRegs` succeeds and reassigns. Enable it together with the Reorderer and
+resolve that remap-failure divergence against the goldens then.
+
+**Still stubbed (no-op):** `Reorderer` (3477) and `PeepholeOptimize` (5641) —
+both need `TLEngineSim` (1948), the NV2A vertex-pipeline stall model, to decide
+scheduling. That sim is the gating prerequisite for the timing-driven half of the
+pipeline. Most of the remaining ~41 `-N` goldens need rename + reorder together
+(the ~2000-line demanding stretch). The pixel back
 end, `VsInstruction` encoding, and `.xvu` container remain green (parse 112/112,
 xpu 14/15, xvu 53/53 round-trip).
 

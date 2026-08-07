@@ -45,6 +45,13 @@ internal sealed class VsInstruction
     public uint Ilu;    // ILU opcode
 
     /// <summary>
+    /// A memberwise copy. The optimizer (VertexOptimizer) is a port of C++ that
+    /// passes D3DVsInstruction by value (`*pair = *a;`, `D3DVsInstruction temp;`);
+    /// VsInstruction is a reference type, so those copies go through here.
+    /// </summary>
+    public VsInstruction Clone() => (VsInstruction)MemberwiseClone();
+
+    /// <summary>
     /// The four words, in the order they are written to file. X is always zero --
     /// the hardware reads 128-bit instructions but only 96 bits carry data.
     /// </summary>
