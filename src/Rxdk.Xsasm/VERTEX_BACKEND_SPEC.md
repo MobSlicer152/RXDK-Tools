@@ -1,11 +1,14 @@
 # NV2A vertex-shader back end — byte-exact port reference
 
-Status: **scoped and specified; implementation pending.** The pixel back end,
-the `VsInstruction` bit encoding, and the `.xvu` container are done and
-golden-verified (`--verify-corpus`: parse 112/112, xpu 14/15, xvu 53/53
-round-trip). What remains is the vertex **translation** (`.vsh` tokens →
-`VsInstruction`s) and the pairing **optimizer**. `Program.cs` currently bails at
-"the vertex back end is not ported yet".
+Status: **Phase 1 (translation) done and golden-verified; Phase 2 (optimizer)
+pending.** `VertexShaderCompiler.cs` translates `.vsh` tokens to `VsInstruction`s
++ appends the screen-space postfix, and `--verify-corpus` reports **xvu golden
+7/52 byte-exact** — every unoptimized golden (source-length + 2) matches
+Microsoft's assembler exactly. The remaining 45 need co-issue pairing and the
+reorder/rename/pair optimizer (Phase 2, §5 below); until then a co-issued or
+`frc`/`exp`/`log` shader errors cleanly rather than mis-emitting. The pixel back
+end, `VsInstruction` encoding, and `.xvu` container remain green (parse 112/112,
+xpu 14/15, xvu 53/53 round-trip).
 
 The authoritative C++ spec is `RXDK-Libs/libs/libxgraphics/shadeasm/api.cpp`
 (the assembler RXDK compiles for the Xbox target — the C++ IS the specification;

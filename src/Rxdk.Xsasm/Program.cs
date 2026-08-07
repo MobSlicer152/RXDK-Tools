@@ -114,8 +114,25 @@ if (!dumpTokens)
 {
     if (result.Kind != ShaderKind.Pixel)
     {
-        Console.Error.WriteLine("xsasm: the vertex back end is not ported yet");
-        return 1;
+        // Vertex shader: translate to NV2A microcode and emit a .xvu. Phase 1 --
+        // faithful translation (no pairing optimizer yet).
+        var vcode = new VertexShaderCompiler(diags).Compile(
+            result.Code, result.Kind, result.ScreenSpace, result.StateShader);
+
+        if (diags.Any(d => d.IsError))
+        {
+            foreach (var d in diags.Where(d => d.IsError))
+                Console.Error.WriteLine(d with { File = d.File.Length == 0 ? path : d.File });
+            return 1;
+        }
+
+        var vkind = result.StateShader ? VertexShaderKind.State
+                  : result.Writable   ? VertexShaderKind.ReadWrite
+                                      : VertexShaderKind.Ordinary;
+        string vout = args.SkipWhile(a => a != "-o").Skip(1).FirstOrDefault()
+                      ?? Path.ChangeExtension(path, ".xvu");
+        File.WriteAllBytes(vout, XvuFile.Write(vkind, vcode));
+        return 0;
     }
 
     PixelShaderDef psd;

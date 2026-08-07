@@ -110,6 +110,22 @@ internal static class CorpusVerifier
         Console.WriteLine($"xvu encoding {xvuOk}/{xvuOk + xvuBad} round-trip byte-exact");
         foreach (string f in xvuFailures) Console.WriteLine($"  FAIL {f}");
 
+        // Vertex translation (Phase 1): assemble each .vsh and compare the golden
+        // .xvu. The pairing/reorder optimizer is not ported, so only the
+        // unoptimized goldens match today; this is reported, not yet gated.
+        int vtxOk = 0, vtxTotal = 0;
+        foreach (string f in shaders.Where(s => s.EndsWith(".vsh", StringComparison.OrdinalIgnoreCase)))
+        {
+            string golden = Path.ChangeExtension(f, ".xvu");
+            if (!File.Exists(golden)) continue;
+            vtxTotal++;
+            byte[]? produced = TryAssembleVertex(f);
+            if (produced is not null && produced.AsSpan().SequenceEqual(File.ReadAllBytes(golden)))
+                vtxOk++;
+        }
+        Console.WriteLine($"xvu golden   {vtxOk}/{vtxTotal} byte-exact" +
+                          $"   (translation only; the rest need the pairing optimizer)");
+
         bool pass = parseFail == 0 && xpuBad == 0 && xvuBad == 0;
         Console.WriteLine(pass ? "PASS" : "FAIL");
         return pass ? 0 : 1;
@@ -155,5 +171,22 @@ internal static class CorpusVerifier
         {
             return null;
         }
+    }
+
+    private static byte[]? TryAssembleVertex(string path)
+    {
+        if (!TryParse(path, out var result) || result is null || result.Kind == ShaderKind.Pixel)
+            return null;
+
+        var diags = new List<Diagnostic>();
+        var code = new VertexShaderCompiler(diags)
+            .Compile(result.Code, result.Kind, result.ScreenSpace, result.StateShader);
+        if (diags.Any(d => d.IsError))
+            return null;
+
+        var vkind = result.StateShader ? VertexShaderKind.State
+                  : result.Writable   ? VertexShaderKind.ReadWrite
+                                      : VertexShaderKind.Ordinary;
+        return XvuFile.Write(vkind, code);
     }
 }
