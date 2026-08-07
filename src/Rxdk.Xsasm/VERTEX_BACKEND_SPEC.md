@@ -1,11 +1,37 @@
 # NV2A vertex-shader back end — byte-exact port reference
 
-Status: **Phase 1 (translation) done and golden-verified. Phase 2 (optimizer):
-framework + first pass landed; the heavy passes remain.** `VertexShaderCompiler.cs`
-translates `.vsh` tokens to `VsInstruction`s + appends the screen-space postfix,
-then runs `VertexOptimizer.Optimize`. `--verify-corpus` reports **xvu golden 11/52
-byte-exact** — the 7 unoptimized goldens (source-length + 2), plus 3 that need
-output-mask pairing + dead-code stripping, plus 1 that needs MAC+ILU co-issue.
+## ⚠️ THE CHECKED-IN `.xvu` GOLDENS ARE AN UNRELIABLE ORACLE — use `xsasm.exe /O1`
+
+The whole optimizer is ported. The catch we discovered: **many of the shipped
+`.xvu` files do not match what the 5849 `xsasm.exe` produces** — they are stale
+(built by an earlier assembler, or with different flags). Proof: for `matinv`,
+our optimizer output is **byte-exact** to `xsasm.exe` (5849) yet differs from the
+checked-in `matinv.xvu`; and `5849-xsasm != checked-in golden` for `billbrd` too.
+So the "sim-precision regressions" earlier were not bugs — the sim is right, the
+checked-in golden was wrong.
+
+**The authoritative oracle is the retail assembler itself:**
+`D:\Git\RXDK\POC\XDKSetup5849.17\XDK\xbox\bin\xsasm.exe`. Our port implements the
+**`/O1`** ("old", peephole/reorder/rename) optimizer — `xsasm.exe` default is
+`/O1 /O2` keep-best, so compare against `xsasm /O1`. Its `/l` listing prints
+retail's per-instruction stalls (the `TLEngineSim` reference trace); e.g. matinv
+instr 4 `mul r0` stalls **5.00**, matching ours exactly.
+
+**Corpus result vs `xsasm /O1` (77 `.vsh`, reorder+rename on):
+MATCH 36 / DIFFER 11 / ERR 30.** The 11 differ are the real remaining bugs
+(billbrd, shader, zsprite, brdf, vshader, tree, twosided, blend, psprite, water).
+The 30 err are unsupported translator features (`frc`/`exp`/`log` macros, co-issue
+source) — the known Phase-1 gaps. So true correctness is **36/47 assemblable**,
+not the 11–19/52 the stale-golden `--verify-corpus` reports. Next step: debug the
+11 real diffs with `--disasm A B` against `xsasm /O1` output, and build the
+`/O1`-oracle comparison into the tool as a first-class check.
+
+---
+
+Status (against the STALE checked-in goldens, which under-count): `--verify-corpus`
+reports **xvu golden 11/52** with the scheduler gated off; enabling reorder+rename
+moves it to ~19 but "regresses" the two stale goldens above. Ignore that metric in
+favor of the `xsasm /O1` comparison.
 
 `VertexOptimizer.cs` ports the `XGOptimizeVertexShader` fixed-point driver and,
 so far, these passes byte-exact:
