@@ -48,7 +48,7 @@ internal static partial class VertexOptimizer
             if (optimize)       PeepholePairOutputMasks(program);
             if (globalOptimize) new DeadCodeStripper(stateShader).Run(program);
             if (globalOptimize && EnableRenamer) new Renamer().Run(program);
-            if (globalOptimize) Reorderer(program);
+            if (globalOptimize && EnableReorderer) new Reorderer(!stateShader).Run(program);
             if (globalOptimize) PeepholeOptimize(program, stateShader);
             if (optimize)       PeepholePair1(program);
             if (globalOptimize) PeepholePair2(program);
@@ -1284,8 +1284,10 @@ internal static partial class VertexOptimizer
         }
     }
 
-    // Reorderer (api.cpp:3477) -- instruction scheduler.
-    private static void Reorderer(List<VsInstruction> program) { }
+    // The Reorderer is ported (VertexReorderer.cs) but starts gated while its
+    // stall-sim-driven decisions are validated against the goldens; flip on to test.
+    private static readonly bool EnableReorderer =
+        Environment.GetEnvironmentVariable("XSASM_ENABLE_REORDERER") is not null;
 
     // PeepholeOptimize (api.cpp:5641): the second operand of an ADD does not
     // stall, so swapping an ADD's A and C is faster when it lowers the modelled

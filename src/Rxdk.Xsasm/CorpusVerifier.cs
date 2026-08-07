@@ -121,7 +121,7 @@ internal static class CorpusVerifier
             vtxTotal++;
             byte[]? produced = TryAssembleVertex(f);
             if (produced is not null && produced.AsSpan().SequenceEqual(File.ReadAllBytes(golden)))
-                vtxOk++;
+            { vtxOk++; if (Environment.GetEnvironmentVariable("XSASM_LIST_VTX") is not null) Console.WriteLine($"  PASS {Path.GetFileName(f)}"); }
         }
         Console.WriteLine($"xvu golden   {vtxOk}/{vtxTotal} byte-exact" +
                           $"   (translation only; the rest need the pairing optimizer)");

@@ -33,10 +33,19 @@ those shaders, and so is ours), which sanity-checks the sim's `CalculateStall`
 path. The sim's exact stall VALUES are only fully exercised once the Reorderer
 uses them.
 
-**Still stubbed (no-op):** `Reorderer` (3477) — the instruction scheduler
-(`RegSet` dirty-tracking + `FindInstruction`/`MoveInstruction`/`PairInstructions`,
-driven by `TLEngineSim.IsStall`). It plus the Renamer/billbrd fix are the last
-pieces; most of the remaining ~40 `-N` goldens need reorder (and rename) to land. The pixel back
+`Reorderer` (3477) — the instruction scheduler (`RegSet` dirty-tracking +
+`FindInstruction`/`MoveInstruction`/`PairInstructions`, driven by
+`TLEngineSim.IsStall`) — is ported in `VertexReorderer.cs` but **gated**
+(`XSASM_ENABLE_REORDERER`, default off). Enabling it moves **11 → 19/52**: it
+preserves 9 of the original 11 and adds 10, but **regresses 2** — `billbrd`
+(multithreaded) and `matinv` (single-threaded state shader). Both are the same
+symptom: our sim flags a stall + a bypass-movable candidate and reorders
+independent instructions where retail leaves program order (the `matinv` diff
+shows it moving instr 8's `mad r0` down to slot 10). So the scheduler logic is
+right; the divergence is **cycle-precision in `TLEngineSim`'s stall/bypass
+detection** on those two shaders. Nailing it wants a step-by-step sim trace vs
+retail (`--disasm` localizes the reorder; the stall values need a reference).
+Fix that + the Renamer/billbrd remap, then flip both on for a clean 19+/52. The pixel back
 end, `VsInstruction` encoding, and `.xvu` container remain green (parse 112/112,
 xpu 14/15, xvu 53/53 round-trip).
 
