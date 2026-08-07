@@ -17,14 +17,20 @@ checked-in golden was wrong.
 retail's per-instruction stalls (the `TLEngineSim` reference trace); e.g. matinv
 instr 4 `mul r0` stalls **5.00**, matching ours exactly.
 
-**Corpus result vs `xsasm /O1` (77 `.vsh`, reorder+rename on):
-MATCH 36 / DIFFER 11 / ERR 30.** The 11 differ are the real remaining bugs
-(billbrd, shader, zsprite, brdf, vshader, tree, twosided, blend, psprite, water).
-The 30 err are unsupported translator features (`frc`/`exp`/`log` macros, co-issue
-source) — the known Phase-1 gaps. So true correctness is **36/47 assemblable**,
-not the 11–19/52 the stale-golden `--verify-corpus` reports. Next step: debug the
-11 real diffs with `--disasm A B` against `xsasm /O1` output, and build the
-`/O1`-oracle comparison into the tool as a first-class check.
+**Corpus result vs `xsasm /O1`: MATCH 47 / DIFFER 0 / ERR 30 of 77 `.vsh`.** The
+optimizer is now **byte-exact to the retail assembler for every shader it can
+assemble** — the full pipeline (PeepholePairOutputMasks, DeadCodeStripper, Renamer,
+Reorderer/TLEngineSim, PeepholeOptimize, PeepholePair1/2) reproduces `/O1` exactly.
+The 30 err are the remaining translator gaps (`frc`/`exp`/`log` macros, co-issue
+source) — the shaders that don't assemble yet, unrelated to the optimizer.
+
+Getting from 36 to 47 took two fixes: (1) `EnableRenamer` had silently reverted to
+`const false`, so the renamer never ran (`billbrd`/`brdf`/... need it); (2) a
+`VRegInfo.Sw` init bug — the swizzle map for register components OUTSIDE a vreg's
+write mask must be identity (a rename passes unwritten components straight
+through), not zero, else an unused select like the W of a source feeding an
+`.xyz`-only op mis-canonicalized to `.xyzx` (that one fixed the last 8). Both the
+Reorderer and Renamer are now ON by default (`XSASM_NO_OPT` to disable).
 
 ---
 

@@ -29,29 +29,37 @@ internal static partial class VertexOptimizer
     /// Run the optimizer in place. Defaults match the assembler's shipping config
     /// (optimize + globalOptimize), which is what produced the goldens.
     /// </summary>
-    // The Renamer is ported (below) but not yet enabled. It is coupled to the
-    // Reorderer -- the driver runs them in sequence and the goldens capture their
-    // combined effect -- and on its own it diverges on at least one shader
-    // (billbrd: our RemapVRegs succeeds and reassigns where retail's fails and
-    // leaves the code unchanged). Flip this on together with the Reorderer port,
-    // then resolve the remaining remap divergence against the goldens.
-    private const bool EnableRenamer = false;
+    // The scheduler + renamer are byte-exact to retail xsasm.exe /O1 for all 47
+    // assemblable corpus shaders, so both are ON by default. Set XSASM_NO_OPT to
+    // disable them (for A/B against the raw translation).
+    private static readonly bool EnableRenamer =
+        Environment.GetEnvironmentVariable("XSASM_NO_OPT") is null;
 
     public static void Optimize(List<VsInstruction> program, bool stateShader = false,
                                 bool optimize = true, bool globalOptimize = true)
     {
+        bool dbg = Environment.GetEnvironmentVariable("XSASM_DBG_PASSES") is not null;
+        void Dump(string pass)
+        {
+            if (!dbg) return;
+            Console.Error.WriteLine($"--- after {pass} (len {program.Count}) ---");
+            for (int i = 0; i < program.Count; i++) Console.Error.WriteLine($"  {i,2}: {VsDisassembler.Disassemble(program[i])}");
+        }
+
         int preOptimizationLength;
+        int iter = 0;
         do
         {
             preOptimizationLength = program.Count;
+            if (dbg) Console.Error.WriteLine($"=== iteration {iter++} ===");
 
-            if (optimize)       PeepholePairOutputMasks(program);
-            if (globalOptimize) new DeadCodeStripper(stateShader).Run(program);
-            if (globalOptimize && EnableRenamer) new Renamer().Run(program);
-            if (globalOptimize && EnableReorderer) new Reorderer(!stateShader).Run(program);
-            if (globalOptimize) PeepholeOptimize(program, stateShader);
-            if (optimize)       PeepholePair1(program);
-            if (globalOptimize) PeepholePair2(program);
+            if (optimize)       { PeepholePairOutputMasks(program); Dump("PairOutputMasks"); }
+            if (globalOptimize) { new DeadCodeStripper(stateShader).Run(program); Dump("DeadCode"); }
+            if (globalOptimize && EnableRenamer) { new Renamer().Run(program); Dump("Renamer"); }
+            if (globalOptimize && EnableReorderer) { new Reorderer(!stateShader).Run(program); Dump("Reorderer"); }
+            if (globalOptimize) { PeepholeOptimize(program, stateShader); Dump("PeepholeOptimize"); }
+            if (optimize)       { PeepholePair1(program); Dump("Pair1"); }
+            if (globalOptimize) { PeepholePair2(program); Dump("Pair2"); }
 
             // Shrinking can expose more dead code, which enables more pairing,
             // so loop until a full pass changes nothing.
@@ -938,12 +946,16 @@ internal static partial class VertexOptimizer
             public int First, Last, HeadValue;
             public byte Mask, Reg, NewReg;
             public bool PrefersR1, RequiresR1, CantBeR1, FixedComponents;
-            public readonly byte[] Sw = new byte[4];
+            // Identity by default so a rename passes components OUTSIDE the write
+            // mask straight through (Sw[i] = 3-i); AssignReg overrides the masked
+            // ones. Retail keeps the unused swizzle selects identity, e.g. the W
+            // select of a source feeding an .xyz-only op.
+            public readonly byte[] Sw = { 3, 2, 1, 0 };
             public void Reset()
             {
                 First = Last = HeadValue = 0; Mask = Reg = NewReg = 0;
                 PrefersR1 = RequiresR1 = CantBeR1 = FixedComponents = false;
-                Array.Clear(Sw);
+                Sw[0] = 3; Sw[1] = 2; Sw[2] = 1; Sw[3] = 0;
             }
         }
 
@@ -1284,10 +1296,8 @@ internal static partial class VertexOptimizer
         }
     }
 
-    // The Reorderer is ported (VertexReorderer.cs) but starts gated while its
-    // stall-sim-driven decisions are validated against the goldens; flip on to test.
     private static readonly bool EnableReorderer =
-        Environment.GetEnvironmentVariable("XSASM_ENABLE_REORDERER") is not null;
+        Environment.GetEnvironmentVariable("XSASM_NO_OPT") is null;
 
     // PeepholeOptimize (api.cpp:5641): the second operand of an ADD does not
     // stall, so swapping an ADD's A and C is faster when it lowers the modelled
