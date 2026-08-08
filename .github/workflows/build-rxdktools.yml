@@ -100,6 +100,7 @@ jobs:
             '| `out/publish/managed/win-x64/tools/imagebld.exe` |',
             '| `out/publish/managed/win-x64/tools/bundler.exe` |',
             '| `out/publish/managed/win-x64/tools/xactbld.exe` |',
+            '| `out/publish/managed/win-x64/tools/xsasm.exe` |',
             '| `out/publish/managed/win-x64/tools/xbox-launch.exe` |',
             '| `out/publish/managed/win-x64/tools/xboxdbg-bridge.exe` |',
             '| `out/publish/managed/win-x64/tools/xbwatson.exe` |',

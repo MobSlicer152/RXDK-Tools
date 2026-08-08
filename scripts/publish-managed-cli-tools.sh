@@ -18,6 +18,7 @@ cli_tools=(
   "Rxdk.ImageBld/Rxdk.ImageBld.csproj:imagebld"
   "Rxdk.Bundler/Rxdk.Bundler.csproj:bundler"
   "Rxdk.XactBld/Rxdk.XactBld.csproj:xactbld"
+  "Rxdk.Xsasm/Rxdk.Xsasm.csproj:xsasm"
   "Rxdk.XboxLaunch.Cli/Rxdk.XboxLaunch.Cli.csproj:xbox-launch"
   "Rxdk.XboxDbgBridge.Cli/Rxdk.XboxDbgBridge.Cli.csproj:xboxdbg-bridge"
   "Rxdk.XbWatson/Rxdk.XbWatson.csproj:xbwatson"
