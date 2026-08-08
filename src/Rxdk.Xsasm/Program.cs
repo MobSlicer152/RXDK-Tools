@@ -14,12 +14,16 @@ if (args.Length == 0 || args.Contains("/?") || args.Contains("--help"))
     Console.Error.WriteLine("""
         Xbox Shader Assembler (RXDK managed port)
 
-        usage: xsasm [--tokens] sourcefile
+        usage: xsasm [options] sourcefile
 
-          --tokens    Print the D3D8 token stream the front end produces.
+          -o <file>   Output path (.xvu for vertex, .xpu for pixel shaders).
+                      Defaults to the source name with the .xvu/.xpu extension.
+          -I <dir>    Add an include search path (for #include).
+          -D <sym>    Predefine a preprocessor symbol.
+          -P          Skip the preprocessor.
+          --tokens    Print the D3D8 token stream instead of assembling.
 
-        Assembling to .xpu/.xvu is not wired up yet -- the pixel and vertex
-        back ends are still being ported.
+        Assembles a .vsh/.psh (Xbox vs/xvs/xvss/ps/xps) source to NV2A microcode.
         """);
     return args.Length == 0 ? 1 : 0;
 }
