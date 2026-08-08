@@ -17,14 +17,33 @@ checked-in golden was wrong.
 retail's per-instruction stalls (the `TLEngineSim` reference trace); e.g. matinv
 instr 4 `mul r0` stalls **5.00**, matching ours exactly.
 
-**Corpus result vs `xsasm /O1`: MATCH 47 / DIFFER 0 / ERR 30 of 77 `.vsh`.** The
-optimizer is now **byte-exact to the retail assembler for every shader it can
-assemble** — the full pipeline (PeepholePairOutputMasks, DeadCodeStripper, Renamer,
-Reorderer/TLEngineSim, PeepholeOptimize, PeepholePair1/2) reproduces `/O1` exactly.
-The 30 err are the remaining translator gaps (`frc`/`exp`/`log` macros, co-issue
-source) — the shaders that don't assemble yet, unrelated to the optimizer.
+**Corpus result vs `xsasm /O1`: MATCH 63 / DIFFER 14 / ERR 0 of 77 `.vsh`.** Every
+shader now assembles, and the full pipeline (PeepholePairOutputMasks, DeadCodeStripper,
+Renamer, Reorderer/TLEngineSim, PeepholeOptimize, PeepholePair1/2) reproduces `/O1`
+byte-exact for 63 of them.
 
-Getting from 36 to 47 took two fixes: (1) `EnableRenamer` had silently reverted to
+The remaining 14 (`ripple` and the `fur_*`/`fin_*` families) are **functionally
+equivalent, not wrong**: the disassembly diffs show identical opcodes, identical
+co-issue pairing, and identical source structure — they differ only in which scratch
+temp the rename allocator picks (e.g. retail `mul r7.w` where we emit `mul r5.z`,
+then that choice cascades through the rest of the shader). The renamer logic is a
+verified line-by-line port of `api.cpp` (`RemapVRegs2Start`/`AssignFreeReg`, the
+`kRegOrder` rotor with `TRY_TO_KEEP_OLD_ASSIGNMENTS` `#ifdef`'d out, rotor reset per
+`Rename()` at 4487). The divergence is an emergent rotor cascade: these scalar-heavy
+shaders make many `AssignFreeReg` calls, and a single functionally-neutral difference
+in pre-renamer temp naming (from an earlier equivalence-preserving pass) shifts the
+rotor, renaming every subsequent scratch. Chasing exact-register parity would require
+matching every earlier pass's temp naming too; the emitted microcode is already
+correct and equivalent, which is what `XGCompileShader`/`XGOptimizeVertexShader` need.
+
+Getting the last translator gaps closed (47→63 assembling+matching): `EXPP`/`LOGP`
+were dispatched at opcodes 41/42 instead of the real `D3DSIO` values 0x4e/0x4f
+(78/79); source co-issue (`+`-joined instruction) was a hard error and now folds into
+the previous instruction via `ForcedPair` per `D3DTokensToUCode` (`api.cpp:8240`); and
+the `fur`/`fin`/`displacement` shaders `#include` fragments, so both `xsasm.exe` (via
+`/I`) and our port (via `-I`) must be given the shader's directory as an include path.
+
+Getting from 36 to 47 (before the translator gaps above) took two fixes: (1) `EnableRenamer` had silently reverted to
 `const false`, so the renamer never ran (`billbrd`/`brdf`/... need it); (2) a
 `VRegInfo.Sw` init bug — the swizzle map for register components OUTSIDE a vreg's
 write mask must be identity (a rename passes unwritten components straight
