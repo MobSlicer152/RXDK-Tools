@@ -74,6 +74,11 @@ internal sealed class VertexShaderCompiler
                 pos += 1 + n;
                 continue;
             }
+            if (opcode == 81)               // D3DSIO_DEF -- a constant, not microcode
+            {
+                pos += 6;                   // opcode + dst register + 4 float dwords
+                continue;
+            }
 
             // Matrix macros expand (recursively) into runs of dp3/dp4.
             if (opcode is >= 20 and <= 24)  // M4x4..M3x2
