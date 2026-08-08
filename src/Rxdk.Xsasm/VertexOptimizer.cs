@@ -543,7 +543,8 @@ internal static partial class VertexOptimizer
         return MergeRegisterOutputMasks(pair, a, b);
     }
 
-    private static bool ForcedPair(out VsInstruction pair, VsInstruction a, VsInstruction b)
+    // Also used by the translator for source co-issue (a `+`-joined instruction).
+    internal static bool ForcedPair(out VsInstruction pair, VsInstruction a, VsInstruction b)
     {
         if (ForcedPair2(out pair, a, b)) return true;
         if (ConvertToImv(out var da, a) && ForcedPair2(out pair, da, b)) return true;

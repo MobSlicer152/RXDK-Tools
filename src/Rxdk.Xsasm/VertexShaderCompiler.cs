@@ -109,15 +109,23 @@ internal sealed class VertexShaderCompiler
             if ((inputs & 2) != 0) { ParseInput(tokens[pos], inst, 'B'); pos++; }
             if ((inputs & 4) != 0) { ParseInput(tokens[pos], inst, 'C'); pos++; }
 
+            ucode.Add(inst);
+
             if (coissue)
             {
-                // Co-issue pairing folds this instruction into the previous one.
-                // Phase 1 does not implement the pairer; a co-issued source is
-                // rare in the unoptimized goldens. Flag rather than mis-emit.
-                Error("co-issue pairing is not yet supported by the vertex back end");
+                // A co-issued (`+`-joined) source instruction folds into the
+                // previous one: force-pair them and drop this slot (D3DTokensToUCode
+                // api.cpp:8240 -- ForcedPair(ucode[i-1], ucode[i]), then i--).
+                if (ucode.Count < 2)
+                    Error("cannot co-issue the first instruction");
+                else if (VertexOptimizer.ForcedPair(out var pair, ucode[^2], ucode[^1]))
+                {
+                    ucode[^2] = pair;
+                    ucode.RemoveAt(ucode.Count - 1);
+                }
+                else
+                    Error("co-issued instructions cannot be combined");
             }
-
-            ucode.Add(inst);
         }
     }
 
@@ -149,8 +157,8 @@ internal sealed class VertexShaderCompiler
             case 13: inst.Mac = VsInstruction.MacSge; inputs = 3; break;                // SGE
             case 16: inst.Ilu = VsInstruction.IluLit; outputs = 2; inputs = 4; break;   // LIT
             case 17: inst.Mac = VsInstruction.MacDst; inputs = 3; break;                // DST
-            case 41: inst.Ilu = VsInstruction.IluExp; outputs = 2; inputs = 4; break;   // EXPP
-            case 42: inst.Ilu = VsInstruction.IluLog; outputs = 2; inputs = 4; break;   // LOGP
+            case 78: inst.Ilu = VsInstruction.IluExp; outputs = 2; inputs = 4; break;   // EXPP (D3DSIO_EXPP = 0x4e)
+            case 79: inst.Ilu = VsInstruction.IluLog; outputs = 2; inputs = 4; break;   // LOGP (D3DSIO_LOGP = 0x4f)
             case 256: inst.Mac = VsInstruction.MacDph; inputs = 3; break;               // DPH
             case 257: inst.Ilu = VsInstruction.IluRcc; outputs = 2; inputs = 4; break;  // RCC
             case 19:  // FRC macro -- expanded separately

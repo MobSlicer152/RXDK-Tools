@@ -66,7 +66,16 @@ if (args.Contains("--verify-xvu"))
 }
 
 bool dumpTokens = args.Contains("--tokens");
-string? path = args.FirstOrDefault(a => !a.StartsWith('-'));
+
+// The source file is the first bare argument that is NOT the value of a
+// value-taking flag (-I/-D/-o), so `-I dir source.vsh` finds source.vsh.
+var consumedByFlag = new HashSet<int>();
+for (int i = 0; i < args.Length - 1; i++)
+    if (args[i] is "-I" or "/I" or "-D" or "/D" or "-o")
+        consumedByFlag.Add(i + 1);
+string? path = null;
+for (int i = 0; i < args.Length; i++)
+    if (!args[i].StartsWith('-') && !consumedByFlag.Contains(i)) { path = args[i]; break; }
 
 if (path is null)
 {
