@@ -43,8 +43,22 @@ internal sealed class XactCompiler
     // Matches XACT_SOUNDBANK_CATEGORY_UNUSED in libxact's xactp.h.
     private const int CategoryUnused = 0xFFFF;
     private const uint XwbSignature = 0x444E4257; // 'DNBW' -> "WBND" on disk (LE)
-    private const uint XwbVersion = 2;
-    private const uint XwbAlignment = 2048;
+    private const uint XwbVersion = 3;            // WAVEBANK_HEADER_VERSION (xactwb.h)
+
+    // xactwb.h on-disk sizes: WAVEBANKHEADER is 2 DWORDs + 4 segment regions; WAVEBANKDATA is
+    // 6 DWORDs + CHAR[16]; WAVEBANKENTRY is dwFlags + format + 2 regions.
+    private const uint WavebankHeaderSize = 40;
+    private const uint WavebankDataSize = 40;
+    private const int  WavebankEntrySize = 24;
+    private const int  WavebankEntryNameLen = 64;   // WAVEBANK_ENTRYNAME_LENGTH
+    private const uint WavebankAlignmentMin = 4;    // WAVEBANK_ALIGNMENT_MIN
+
+    private const uint WavebankTypeStreaming = 0x00000001;  // WAVEBANK_TYPE_STREAMING
+    private const uint WavebankFlagsEntryNames = 0x00010000; // WAVEBANK_FLAGS_ENTRYNAMES
+
+    // WAVEBANKENTRY dwFlags (xactwb.h).
+    private const uint WavebankEntryLoopCache = 0x00000002;   // a looping sound uses this wave
+    private const uint WavebankEntryFilterAdpcm = 0x00010000; // stored as Xbox ADPCM
 
     private const int FriendlyNameLen = 16;
 
@@ -88,10 +102,13 @@ internal sealed class XactCompiler
         var waveEntryIndex = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
         var waveEntryRate = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
 
+        var loopedWaves = CollectLoopedWaves();
+
         foreach (var wb in waveBanks)
         {
             var bankName = wb.Prop("Name") ?? "";
-            var (perName, perRate) = BuildWaveBank(wb, bankName);
+            loopedWaves.TryGetValue(bankName, out var looped);
+            var (perName, perRate) = BuildWaveBank(wb, bankName, looped);
             waveEntryIndex[bankName] = perName;
             waveEntryRate[bankName] = perRate;
         }
@@ -113,20 +130,68 @@ internal sealed class XactCompiler
     private const ushort WaveFormatXboxAdpcm = 0x0069;
     private const int    XboxAdpcmBlockBytes = 36;
 
-    // Per-entry loaded audio: PCM (from wav/aiff) or WMA (demuxed from an ASF .wma).
+    // WAVE_FORMAT_MSAUDIO1 / WAVE_FORMAT_WMAUDIO2, as an ASF audio stream reports them.
+    private const ushort WmaV1FormatTag = 0x0160;
+    private const ushort WmaV2FormatTag = 0x0161;
+
+    // Per-entry loaded audio: PCM/ADPCM samples (from wav/aiff), or a .wma file stored verbatim.
     private sealed class WaveEntryDesc
     {
+        public string Name = "";      // friendly name, written to the entry-name segment
         public ushort FormatTag;      // 1 = PCM, 0x0161 = WMAv2, 0x0160 = WMAv1
         public ushort Channels;
         public uint   SamplesPerSec;
         public uint   AvgBytesPerSec;
         public ushort BlockAlign;
         public ushort BitsPerSample;
-        public byte[] ExtraData = Array.Empty<byte>();  // WMA codec setup (cbSize bytes)
-        public byte[] Data = Array.Empty<byte>();        // PCM samples, or raw WMA packets
+        public uint   LoopStart;      // bytes into Data; zero length means no loop
+        public uint   LoopLength;
+        public uint   Flags;          // WAVEBANKENTRY dwFlags
+        public byte[] Data = Array.Empty<byte>();        // PCM/ADPCM samples, or the .wma file
     }
 
-    private (Dictionary<string, int> names, Dictionary<string, int> rates) BuildWaveBank(XapNode wb, string bankName)
+    // WAVEBANKENTRY_FLAGS_LOOPCACHE marks a wave that one or more looping sounds use. That is a
+    // property of the sound bank (a track's Loop Count), not of the wave, so it has to be
+    // collected before any wave bank is written. Keyed wave bank name -> wave entry names.
+    private Dictionary<string, HashSet<string>> CollectLoopedWaves()
+    {
+        var looped = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+        static IEnumerable<XapNode> RegisteredWaves(XapNode node)
+        {
+            foreach (var child in node.Children)
+            {
+                if (string.Equals(child.Name, "Registered Wave", StringComparison.OrdinalIgnoreCase))
+                    yield return child;
+                foreach (var nested in RegisteredWaves(child))
+                    yield return nested;
+            }
+        }
+
+        foreach (var sb in _root.ChildrenNamed("Sound Bank"))
+        foreach (var sound in sb.ChildrenNamed("Sound"))
+        foreach (var track in sound.ChildrenNamed("Track"))
+        foreach (var evt in track.Children)
+        {
+            if (evt.IntProp("Loop Count") == 0)
+                continue;
+            foreach (var wave in RegisteredWaves(evt))
+            {
+                var bank = wave.Prop("Wave Bank");
+                var entry = wave.Prop("Wave Entry");
+                if (bank == null || entry == null)
+                    continue;
+                if (!looped.TryGetValue(bank, out var entries))
+                    looped[bank] = entries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                entries.Add(entry);
+            }
+        }
+
+        return looped;
+    }
+
+    private (Dictionary<string, int> names, Dictionary<string, int> rates) BuildWaveBank(
+        XapNode wb, string bankName, HashSet<string>? loopedEntries)
     {
         var entries = wb.ChildrenNamed("Entry").ToList();
         var names = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -148,8 +213,14 @@ internal sealed class XactCompiler
             WaveEntryDesc d;
             if (ext == ".wma")
             {
-                // Demux the ASF container to the raw WMA packet stream + WAVEFORMATEX. The bank is
-                // then written as an RXWM container that libxact decodes to PCM on load.
+                // A WMA entry is stored as the .wma file itself, byte for byte, and carries the
+                // mini-format's WMA tag. The runtime plays it by pointing a WMA decoder Xbox Media
+                // Object at the entry's offset in the bank file and streaming the PCM it yields, so
+                // what has to survive into the bank is the ASF container the decoder parses -- the
+                // codec setup lives in its header, which is why a bank entry needs no field for it.
+                //
+                // The ASF is still read here, for the channel count and sample rate the mini-format
+                // carries, and to reject a file the runtime would not be able to decode.
                 var s = AsfWmaReader.Read(wavPath);
                 d = new WaveEntryDesc
                 {
@@ -158,9 +229,8 @@ internal sealed class XactCompiler
                     SamplesPerSec = s.SamplesPerSec,
                     AvgBytesPerSec = s.AvgBytesPerSec,
                     BlockAlign = s.BlockAlign,
-                    BitsPerSample = s.BitsPerSample,
-                    ExtraData = s.ExtraData,
-                    Data = s.WmaData,
+                    BitsPerSample = 16,     // what the decoder emits, whatever the source was
+                    Data = File.ReadAllBytes(wavPath),
                 };
                 anyWma = true;
             }
@@ -177,8 +247,26 @@ internal sealed class XactCompiler
                         $"Wave '{name}' uses unsupported WAV format tag {wav.FormatTag} " +
                         "(only uncompressed PCM, Xbox ADPCM, AIFF, and WMA are supported).");
                 bool isAdpcm = wav.FormatTag == WaveFormatXboxAdpcm;
-                // ADPCM keeps the block alignment declared in the source file's fmt chunk
-                // (64 samples per channel per 36-byte block).
+                var pcm = wav.Pcm;
+                uint entryFlags = 0;
+
+                // "ADPCM Filter" asks for this entry to be stored compressed. A wave that is
+                // already Xbox ADPCM rides through untouched either way: the mini-format has a
+                // PCM/ADPCM tag, so the bank carries the blocks natively for the hardware to
+                // decode.
+                if (!isAdpcm && e.IntProp("ADPCM Filter") != 0)
+                {
+                    if (wav.BitsPerSample != 16)
+                        throw new XactBldException(
+                            $"Wave '{name}' asks for the ADPCM filter but is {wav.BitsPerSample}-bit; " +
+                            "only 16-bit PCM can be encoded.");
+                    pcm = ImaAdpcmEncoder.Encode(pcm, wav.Channels);
+                    isAdpcm = true;
+                    entryFlags |= WavebankEntryFilterAdpcm;
+                }
+
+                // ADPCM block alignment is fixed by the format: 64 samples per channel packed
+                // into 36 bytes.
                 ushort blockAlign = isAdpcm
                     ? (ushort)(XboxAdpcmBlockBytes * wav.Channels)
                     : (ushort)(wav.Channels * (wav.BitsPerSample / 8));
@@ -189,11 +277,17 @@ internal sealed class XactCompiler
                     SamplesPerSec = (uint)wav.SamplesPerSec,
                     AvgBytesPerSec = (uint)(wav.SamplesPerSec * blockAlign),
                     BlockAlign = blockAlign,
-                    BitsPerSample = (ushort)wav.BitsPerSample,
-                    Data = wav.Pcm,
+                    BitsPerSample = (ushort)(isAdpcm ? ImaAdpcmEncoder.BitsPerSample : wav.BitsPerSample),
+                    LoopStart = wav.LoopStart,
+                    LoopLength = wav.LoopLength,
+                    Flags = entryFlags,
+                    Data = pcm,
                 };
             }
 
+            d.Name = name;
+            if (loopedEntries != null && loopedEntries.Contains(name))
+                d.Flags |= WavebankEntryLoopCache;
             names[name] = i;
             rates[name] = (int)d.SamplesPerSec;
             descs.Add(d);
@@ -203,85 +297,123 @@ internal sealed class XactCompiler
         if (string.IsNullOrWhiteSpace(bankFile))
             throw new XactBldException($"Wave Bank '{bankName}' has no Bank File");
 
-        byte[] bankBytes = anyWma ? BuildRxwmBank(bankName, descs) : BuildXwbBank(bankName, descs);
-        WriteOutput(bankFile!, bankBytes);
+        // A streaming bank is read from the DVD in place, so the project picks the sector
+        // alignment its entries are padded to; an in-memory bank has no such constraint and
+        // uses the format minimum.
+        bool streaming = wb.IntProp("Streaming") != 0;
+        uint alignment = (uint)wb.IntProp("Alignment", (int)WavebankAlignmentMin);
+        if (alignment < WavebankAlignmentMin) alignment = WavebankAlignmentMin;
+        bool entryNames = wb.IntProp("Entry Names") != 0;
+
+        // WMA can only be played by streaming it past a software decoder, so a bank holding any
+        // WMA entry has to be a streaming bank -- the runtime needs the file to still be open, and
+        // an offset into it, to decode from.
+        if (anyWma && !streaming)
+        {
+            throw new XactBldException(
+                $"Wave Bank '{bankName}' contains WMA but is not a streaming bank. " +
+                "WMA is decoded in software as it streams, so it cannot go in an in-memory bank.");
+        }
+
+        WriteOutput(bankFile!, BuildXwbBank(bankName, descs, streaming, alignment, entryNames));
         return (names, rates);
     }
 
-    // Standard PCM wave bank (WBND): WAVEBANKHEADER + WAVEBANKENTRY[] + aligned PCM data segment.
-    private static byte[] BuildXwbBank(string bankName, List<WaveEntryDesc> descs)
+    // Standard wave bank (WBND), the version 3 layout the shipped xactwb.h describes: a
+    // segment lookup table pointing at WAVEBANKDATA, the entry meta-data array, the optional
+    // entry-name array, and the wave data.
+    //
+    // Titles do parse this file - WaveBank and WaveBankStream read the header themselves with
+    // xactwb.h and reject a version they do not know - so the on-disk version is a public
+    // contract, not just one between this tool and libxact.
+    private static byte[] BuildXwbBank(
+        string bankName, List<WaveEntryDesc> descs, bool streaming, uint alignment, bool entryNames)
     {
-        var meta = new List<(uint fmt, uint playStart, uint playLen)>();
+        // Every entry starts on an alignment boundary, and so does the end of the segment:
+        // a streaming bank is read in whole sectors, so the tail is padded like the rest.
+        var meta = new List<(uint flags, uint fmt, uint playStart, uint playLen, uint loopStart, uint loopLen)>();
         var data = new MemoryStream();
         foreach (var d in descs)
         {
-            AlignStream(data, XwbAlignment);
+            AlignStream(data, alignment);
             uint playStart = (uint)data.Length;
             data.Write(d.Data, 0, d.Data.Length);
-            uint tag = d.FormatTag == WaveFormatXboxAdpcm ? 1u : 0u;   // MINIFORMAT_TAG_ADPCM
-            uint fmt = tag
-                     | ((uint)(d.Channels & 0x7) << 1)
-                     | ((d.SamplesPerSec & 0x7FFFFFF) << 4)
-                     | ((d.BitsPerSample == 16 ? 1u : 0u) << 31);
-            meta.Add((fmt, playStart, (uint)d.Data.Length));
+            meta.Add((d.Flags, PackMiniFormat(d), playStart, (uint)d.Data.Length, d.LoopStart, d.LoopLength));
         }
+        AlignStream(data, alignment);
+
+        int entryCount = descs.Count;
+        uint bankDataOff = WavebankHeaderSize;
+        uint metaOff = bankDataOff + WavebankDataSize;
+        uint metaLen = (uint)(entryCount * WavebankEntrySize);
+        uint namesOff = entryNames ? metaOff + metaLen : 0;
+        uint namesLen = entryNames ? (uint)(entryCount * WavebankEntryNameLen) : 0;
+        uint dataOff = AlignUp(metaOff + metaLen + namesLen, alignment);
 
         var outBytes = new MemoryStream();
         var w = new BinaryWriter(outBytes);
+
+        // WAVEBANKHEADER
         w.Write(XwbSignature);
         w.Write(XwbVersion);
-        w.Write((uint)0);               // dwFlags
-        w.Write((uint)descs.Count);     // dwEntryCount
-        w.Write(XwbAlignment);          // dwAlignment
+        w.Write(bankDataOff); w.Write(WavebankDataSize);
+        w.Write(metaOff);     w.Write(metaLen);
+        w.Write(namesOff);    w.Write(namesLen);
+        w.Write(dataOff);     w.Write((uint)data.Length);
+
+        // WAVEBANKDATA
+        uint flags = (streaming ? WavebankTypeStreaming : 0u)
+                   | (entryNames ? WavebankFlagsEntryNames : 0u);
+        w.Write(flags);
+        w.Write((uint)entryCount);
         WriteFixedString(w, bankName, FriendlyNameLen);
+        w.Write((uint)WavebankEntrySize);       // dwEntryMetaDataElementSize
+        w.Write((uint)WavebankEntryNameLen);    // dwEntryNameElementSize (set even with no names)
+        w.Write(alignment);
+        w.Write((uint)0);                       // CompactFormat (compact banks not emitted)
+
+        // WAVEBANKENTRY[]
         foreach (var m in meta)
         {
+            w.Write(m.flags);
             w.Write(m.fmt);
-            w.Write(m.playStart);
-            w.Write(m.playLen);
-            w.Write((uint)0);           // loopStart
-            w.Write((uint)0);           // loopLen
+            w.Write(m.playStart); w.Write(m.playLen);
+            w.Write(m.loopStart); w.Write(m.loopLen);
         }
+
+        if (entryNames)
+            foreach (var d in descs)
+                WriteFixedString(w, d.Name, WavebankEntryNameLen);
+
+        // Pad out to the aligned start of the wave data segment.
+        w.Flush();
+        while (outBytes.Length < dataOff) outBytes.WriteByte(0);
+
         w.Write(data.ToArray());
         w.Flush();
         return outBytes.ToArray();
     }
 
-    // Private WMA container ("RXWM") that libxact's XactMaybeTranscodeWmaBank decodes to a standard
-    // WBND bank on load. Used when a bank has any WMA entry (the leak's mini-format has no WMA tag).
-    private static byte[] BuildRxwmBank(string bankName, List<WaveEntryDesc> descs)
+    // WAVEBANKMINIWAVEFORMAT: wFormatTag:2, nChannels:3, nSamplesPerSec:26, wBitsPerSample:1.
+    // The tag is two bits wide here (version 2 used one), which shifts every field above it.
+    private static uint PackMiniFormat(WaveEntryDesc d)
     {
-        var outBytes = new MemoryStream();
-        var w = new BinaryWriter(outBytes);
-        w.Write((byte)'R'); w.Write((byte)'X'); w.Write((byte)'W'); w.Write((byte)'M');
-        w.Write((uint)1);               // version
-        w.Write((uint)descs.Count);
-        WriteFixedString(w, bankName, FriendlyNameLen);
-        foreach (var d in descs)
+        uint tag = d.FormatTag switch
         {
-            w.Write((ushort)d.FormatTag);
-            w.Write((ushort)d.Channels);
-            w.Write((uint)d.SamplesPerSec);
-            w.Write((uint)d.AvgBytesPerSec);
-            w.Write((ushort)d.BlockAlign);
-            w.Write((ushort)d.BitsPerSample);
-            w.Write((ushort)d.ExtraData.Length);
-            w.Write((ushort)0);         // reserved
-            w.Write((uint)d.Data.Length);
-            w.Write(d.ExtraData);
-            w.Write(d.Data);
-        }
-        w.Flush();
-        return outBytes.ToArray();
+            WaveFormatXboxAdpcm => 1u,          // WAVEBANKMINIFORMAT_TAG_ADPCM
+            WmaV1FormatTag or WmaV2FormatTag => 2u,  // WAVEBANKMINIFORMAT_TAG_WMA
+            _ => 0u,                            // WAVEBANKMINIFORMAT_TAG_PCM
+        };
+        return (tag & 0x3)
+             | ((uint)(d.Channels & 0x7) << 2)
+             | ((d.SamplesPerSec & 0x3FFFFFF) << 5)
+             | ((d.BitsPerSample == 16 ? 1u : 0u) << 31);
     }
 
-    private static uint PackMiniFormat(WavData wav)
+    private static uint AlignUp(uint value, uint align)
     {
-        uint tag = 0;                              // WAVEBANKMINIFORMAT_TAG_PCM
-        uint channels = (uint)(wav.Channels & 0x7);
-        uint rate = (uint)(wav.SamplesPerSec & 0x7FFFFFF);
-        uint bits = (uint)(wav.BitsPerSample == 16 ? 1 : 0); // 16-bit -> 1, 8-bit -> 0
-        return (tag & 0x1) | (channels << 1) | (rate << 4) | (bits << 31);
+        uint rem = value % align;
+        return rem == 0 ? value : value + (align - rem);
     }
 
     // =====================================================================
@@ -349,8 +481,10 @@ internal sealed class XactCompiler
         int nCues = cues.Count;
 
         // ---- Compute absolute file offsets (cumulative; matches filegen for 1 sound) ----
-        // soundSize is 30, not 28, since wCategory was added (see XsbVersion).
-        const int headerSize = 36, cueSize = 24, soundSize = 30, wbEntrySize = 20, trackSize = 8;
+        // soundSize is 32, not 28, since wCategory and the padding that keeps the entry 4-aligned
+        // were added (see XsbVersion). The runtime indexes the table with sizeof(), so a stride that
+        // disagrees with the C struct misreads every entry past the first.
+        const int headerSize = 36, cueSize = 24, soundSize = 32, wbEntrySize = 20, trackSize = 8;
         int soundTableOff = headerSize + cueSize * nCues;
         int threeDOff = soundTableOff + soundSize * nSounds;
         int wavebankTableOff = threeDOff; // no 3D params emitted (no 3D sounds in ported samples)
@@ -405,6 +539,7 @@ internal sealed class XactCompiler
             w.Write((ushort)wbCount);                                     // wWaveBankCount
             w.Write((ushort)0);                                           // wSliderCount
             w.Write((ushort)soundCategories[i]);                          // wCategory
+            w.Write((ushort)0);                                           // wReserved (entry padding)
 
             wbCursor += wbCount;
             trackCursor += trkCount;

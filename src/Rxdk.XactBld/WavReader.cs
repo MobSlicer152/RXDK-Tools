@@ -14,6 +14,13 @@ internal sealed class WavData
     public int SamplesPerSec;
     public int BitsPerSample;
     public byte[] Pcm = Array.Empty<byte>();
+
+    // First 'smpl' loop, in bytes from the start of the sample data, or a zero length when
+    // the file declares no loop. The wave bank carries the loop per entry, and the source
+    // file is where the real tool takes it from - the .xap's own Loop Region properties go
+    // stale as soon as the wav is re-edited, and are ignored.
+    public uint LoopStart;
+    public uint LoopLength;
 }
 
 internal static class WavReader
@@ -26,7 +33,8 @@ internal static class WavReader
             throw new XactBldException($"Not a RIFF/WAVE file: {path}");
 
         var wav = new WavData();
-        bool haveFmt = false, haveData = false;
+        bool haveFmt = false, haveData = false, haveLoop = false;
+        uint loopStartSample = 0, loopEndSample = 0;
         int pos = 12;
         while (pos + 8 <= b.Length)
         {
@@ -49,6 +57,20 @@ internal static class WavReader
                 wav.Pcm = b.AsSpan(body, (int)size).ToArray();
                 haveData = true;
             }
+            else if (id == "smpl" && size >= 36 + 24)
+            {
+                // SMPLCHUNK: 28 bytes of tuning/manufacturer fields, then dwSampleLoops and
+                // dwSamplerData, then the loop array. Each loop is 24 bytes with the start and
+                // end sample at +8 and +12. Only the first loop is representable in a bank.
+                uint loops = BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(body + 28, 4));
+                if (loops > 0)
+                {
+                    int loop = body + 36;
+                    loopStartSample = BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(loop + 8, 4));
+                    loopEndSample = BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(loop + 12, 4));
+                    haveLoop = true;
+                }
+            }
 
             // Chunks are word-aligned: a pad byte follows an odd-sized body.
             pos = body + (int)size + ((size & 1) == 1 ? 1 : 0);
@@ -56,6 +78,19 @@ internal static class WavReader
 
         if (!haveFmt) throw new XactBldException($"WAV has no 'fmt ' chunk: {path}");
         if (!haveData) throw new XactBldException($"WAV has no 'data' chunk: {path}");
+
+        // 'smpl' counts in samples and its end sample is inclusive, so the region spans
+        // (end - start + 1) frames.
+        if (haveLoop && loopEndSample >= loopStartSample)
+        {
+            int frame = wav.Channels * (wav.BitsPerSample / 8);
+            if (frame > 0)
+            {
+                wav.LoopStart = loopStartSample * (uint)frame;
+                wav.LoopLength = (loopEndSample - loopStartSample + 1) * (uint)frame;
+            }
+        }
+
         return wav;
     }
 }
