@@ -42,7 +42,32 @@ D:\Git\xbox_leak_may_2020\xbox_leak_may_2020\xbox trunk\xbox\private\
     windows\directx\dxg\xgraphics\dxtc\        # s3_quant.cpp, s3_intrf.cpp (DXT)
 ```
 
+## Tools, and how they ship
+
+| Tool | Project | Ships as |
+| --- | --- | --- |
+| `bundler` | `src/Rxdk.Bundler` | `tools/bundler` in the managed bundle |
+| `skinbld` | `src/Rxdk.SkinBld` | `tools/skinbld` in the managed bundle |
+
+Both are in `RXDKTools.sln`, so CI's `msbuild RXDKTools.sln` builds them, and both
+are listed in `scripts/publish-managed-cli-tools.{ps1,sh}`, so every platform's
+`rxdk-managed-<rid>.zip` release asset carries them. `skinbld` takes a
+`ProjectReference` on `Rxdk.Bundler` — it delegates image compilation rather than
+duplicating the codec, so a bundler fix changes skin output too.
+
+`RXDK-VS20XX`'s `HostToolsInstaller.RequiredHostTools` does **not** list
+`skinbld` yet, because nothing in the build invokes it. Add it there in the same
+change that wires the skin step in, otherwise every existing install will
+consider itself incomplete before a release exists that contains the tool.
+
 ## Reproducing
+
+Build the two tools first — Debug is fine and is what the commands below assume:
+
+```powershell
+cd D:\Git\RXDK-Tools
+dotnet build src\Rxdk.SkinBld\Rxdk.SkinBld.csproj      # builds Rxdk.Bundler too
+```
 
 ```powershell
 $sb = 'D:\Git\RXDK-Tools\src\Rxdk.SkinBld\bin\Debug\net8.0\skinbld.exe'
@@ -154,3 +179,53 @@ bundler use its default output paths while sweeping the sample tree.**
    is needed.
 4. Add a regression test that runs `Sweep-Bundler.ps1` and the two skin diffs,
    so the counts above are enforced rather than remembered.
+
+## Picking this up again
+
+Start by re-establishing the baseline, so any change is measured against a number
+you produced yourself rather than the table above:
+
+```powershell
+cd D:\Git\RXDK-Tools
+dotnet build src\Rxdk.SkinBld\Rxdk.SkinBld.csproj
+reftest\Sweep-Bundler.ps1 -ShowAll        # ~17 min, writes reftest\bundler-sweep.txt
+```
+
+`Sweep-Bundler.ps1` finds every `.rdf` with an `.xpr` beside it (or under
+`Media\`), rebuilds it into `$env:TEMP\bundlersweep`, and reports differing byte
+counts. Expect `439 pairs: 370 byte-identical`. It defaults to the Debug
+`bundler.exe`; pass `-Bundler` to test a published build instead.
+
+Then take the two open threads in this order — the big mismatches first, because
+they are the ones likely to be a real bug rather than a rounding tie:
+
+1. **A large mismatch, e.g. `Graphics\PlayField`.** Rebuild that one `.rdf` to a
+   scratch path and localise the damage before reading any code:
+
+   ```powershell
+   $b = 'D:\Git\RXDK-Tools\src\Rxdk.Bundler\bin\Debug\net8.0\bundler.exe'
+   cd D:\Git\RXDK-VS20XX\XDKSamples\Graphics\PlayField
+   & $b -q -o $env:TEMP\ours.xpr -h $env:TEMP\ours.h -e $env:TEMP\ours.err Resource.rdf
+   cd D:\Git\RXDK-Tools\reftest
+   python xprpix.py Media\Resource.xpr $env:TEMP\ours.xpr   # which resource, which pixels
+   python blockdump.py <ref> <ours> <offset>                # one DXT block, decoded
+   ```
+
+   The question to answer first is whether the resource *headers* agree. If they
+   do, it is pixel data and belongs to the codec; if they do not, it is layout or
+   a format decision and the answer is in the leaked `bundler.cpp`. Watch for a
+   mismatch shared by several samples — the repeated byte counts in
+   `bundler-sweep.txt` mean one fix clears a whole group.
+
+2. **DXT colour endpoints.** `dxtsplit.py` isolates the colour half from the
+   alpha half, and `triangle.py` / `triangle2.py` model the resample at chosen
+   precisions — that pairing is what settled the `F2I` question, and it is the
+   right instrument here too. Re-derive `allSame`'s `force4` against
+   `s3_quant.cpp` before anything else, since it is a known guess.
+
+Only then wire the skin step into the build (`XboxBuild.cs`, beside the `.rdf`
+and `.xap` passes, plus `RequiredHostTools`) — doing it earlier means every
+parity change has to be re-validated through the build as well as directly.
+
+Do not run the bundler with default output paths anywhere inside the sample tree;
+see the incident above.
