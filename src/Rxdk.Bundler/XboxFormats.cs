@@ -86,6 +86,14 @@ internal static class XboxFormats
     // differs from RXDK-Libs' own header.cpp, which uses channel A; the packed-resource
     // loader consumes the stored header verbatim, so we match the retail output.
     public const uint D3DFORMAT_DMACHANNEL_B = 0x00000002;
+
+    // Microsoft shipped .xpr files tagged both ways: the sample media the port was
+    // validated against uses channel B, while the 5849 bundler.exe binary emits
+    // channel A. The bit selects a pusher DMA context and is ignored by the
+    // packed-resource loader, so it only matters when reproducing a specific tool's
+    // bytes -- skinbld sets channel A to match the skins 5849 produces.
+    public static uint DmaChannel = D3DFORMAT_DMACHANNEL_B;
+
     public const uint D3DFORMAT_CUBEMAP = 0x00000004;
     public const uint D3DFORMAT_BORDERSOURCE_COLOR = 0x00000008;
     public const int D3DFORMAT_DIMENSION_SHIFT = 4;
@@ -346,7 +354,7 @@ internal static class XboxFormats
                | (logWidth << D3DFORMAT_USIZE_SHIFT)
                | (logHeight << D3DFORMAT_VSIZE_SHIFT)
                | (logDepth << D3DFORMAT_PSIZE_SHIFT)
-               | D3DFORMAT_DMACHANNEL_B
+               | DmaChannel
                | D3DFORMAT_BORDERSOURCE_COLOR;
 
         if (sizeWidth != 0)

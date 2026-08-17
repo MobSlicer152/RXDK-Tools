@@ -117,13 +117,16 @@ internal sealed class Bundler
                     SingleTexture = true;
                 }
 
-                XprPath = baseName + ".xpr";
-                HdrPath = baseName + ".h";
-                ErrPath = baseName + ".err";
+                // The input's base name only supplies defaults; an explicit -o/-h/-e
+                // wins, and so does out_packedresource in the .rdf.
+                if (!_explicitXpr) XprPath = baseName + ".xpr";
+                if (!_explicitHdr) HdrPath = baseName + ".h";
+                if (!_explicitErr) ErrPath = baseName + ".err";
 
-                // m_strPath = directory of the xpr (including trailing separator).
-                int slash = XprPath.LastIndexOfAny(new[] { '\\', '/' });
-                _pathPrefix = slash >= 0 ? XprPath.Substring(0, slash + 1) : "";
+                // m_strPath = the input's directory (including trailing separator).
+                // Source images resolve against it, so it must not follow -o.
+                int slash = RdfPath.LastIndexOfAny(new[] { '\\', '/' });
+                _pathPrefix = slash >= 0 ? RdfPath.Substring(0, slash + 1) : "";
 
                 haveRdf = true;
             }

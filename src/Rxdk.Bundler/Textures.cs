@@ -245,6 +245,8 @@ internal abstract class BaseTexture
                 throw new BundlerException("Palettized alpha source images are not supported.");
         }
 
+        // A mismatched pair is reconciled by resampling both surfaces up to the
+        // larger of the two before the channels are merged.
         uint width = color.Width, height = color.Height;
         if (alpha != null)
         {
@@ -260,11 +262,12 @@ internal abstract class BaseTexture
             var resizedAlpha = new CImage(width, height, alpha.Format);
             CImage.Blt(resizedAlpha, alpha, Filter, 0);
 
-            for (int i = 0; i < width * height; i++)
-            {
-                uint alphaByte = resizedAlpha.Data[i * 4 + 3]; // top byte of alpha surface
-                resizedColor.Data[i * 4 + 3] = (byte)alphaByte;
-            }
+            // basetexture.cpp merges with "dwAlpha = (*pAlphaBits) << 24", i.e. the
+            // alpha comes from the LOW byte of the 0xAARRGGBB pixel -- the blue
+            // channel -- not from the alpha source's own alpha channel, which is
+            // absent whenever the alpha art is a plain 24-bit bitmap.
+            for (long i = 0; i < (long)width * height; i++)
+                resizedColor.Data[i * 4 + 3] = resizedAlpha.Data[i * 4 + 0];
         }
 
         return resizedColor;

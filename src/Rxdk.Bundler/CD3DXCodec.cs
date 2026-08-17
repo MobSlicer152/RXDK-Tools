@@ -136,7 +136,13 @@ internal class CXD3DXCodec
     public uint m_uBytesPerPixel;
 
     // ---- Fast FLOAT->INT (truncate toward zero, matching F2IBegin RC=CLAMP + fistp) ----
-    public static int F2I(float f) => (int)f;
+    //
+    // The argument is double even though every caller feeds it a float expression.
+    // The original ran with the x87 precision control pinned to 24 bits, so its
+    // stored floats are what a C# float holds - but the scale-and-dither
+    // expression handed to F2I never reached memory, so it kept register width.
+    // Rounding it to float first would round ties like 151.5 the wrong way.
+    public static int F2I(double f) => (int)f;
 
     // ---- Little-endian surface access ----
     protected static ushort R16(byte[] b, int o) => (ushort)(b[o] | (b[o + 1] << 8));
@@ -286,9 +292,9 @@ internal sealed class CXD3DXCodec_R8G8B8 : CXD3DXCodec
         for (uint i = 0; i < m_uWidth; i++)
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
-            m_pbData[pub + 0] = (byte)F2I(pColors[off + (int)i].b * 255.0f + fDither);
-            m_pbData[pub + 1] = (byte)F2I(pColors[off + (int)i].g * 255.0f + fDither);
-            m_pbData[pub + 2] = (byte)F2I(pColors[off + (int)i].r * 255.0f + fDither);
+            m_pbData[pub + 0] = (byte)F2I(pColors[off + (int)i].b * 255.0 + fDither);
+            m_pbData[pub + 1] = (byte)F2I(pColors[off + (int)i].g * 255.0 + fDither);
+            m_pbData[pub + 2] = (byte)F2I(pColors[off + (int)i].r * 255.0 + fDither);
             pub += 3;
         }
     }
@@ -320,10 +326,10 @@ internal sealed class CXD3DXCodec_A8R8G8B8 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            uint v = (uint)((F2I(c.r * 255.0f + fDither) << 16) |
-                            (F2I(c.g * 255.0f + fDither) << 8) |
-                            (F2I(c.b * 255.0f + fDither) << 0) |
-                            (F2I(c.a * 255.0f + fDither) << 24));
+            uint v = (uint)((F2I(c.r * 255.0 + fDither) << 16) |
+                            (F2I(c.g * 255.0 + fDither) << 8) |
+                            (F2I(c.b * 255.0 + fDither) << 0) |
+                            (F2I(c.a * 255.0 + fDither) << 24));
             W32(m_pbData, p, v);
             p += 4;
         }
@@ -357,9 +363,9 @@ internal sealed class CXD3DXCodec_X8R8G8B8 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            uint v = (uint)((F2I(c.r * 255.0f + fDither) << 16) |
-                            (F2I(c.g * 255.0f + fDither) << 8) |
-                            (F2I(c.b * 255.0f + fDither) << 0));
+            uint v = (uint)((F2I(c.r * 255.0 + fDither) << 16) |
+                            (F2I(c.g * 255.0 + fDither) << 8) |
+                            (F2I(c.b * 255.0 + fDither) << 0));
             W32(m_pbData, p, v);
             p += 4;
         }
@@ -393,9 +399,9 @@ internal sealed class CXD3DXCodec_R5G6B5 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            ushort v = (ushort)((F2I(c.r * 31.0f + fDither) << 11) |
-                                (F2I(c.g * 63.0f + fDither) << 5) |
-                                (F2I(c.b * 31.0f + fDither) << 0));
+            ushort v = (ushort)((F2I(c.r * 31.0 + fDither) << 11) |
+                                (F2I(c.g * 63.0 + fDither) << 5) |
+                                (F2I(c.b * 31.0 + fDither) << 0));
             W16(m_pbData, p, v);
             p += 2;
         }
@@ -429,9 +435,9 @@ internal sealed class CXD3DXCodec_X1R5G5B5 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            ushort v = (ushort)((F2I(c.r * 31.0f + fDither) << 10) |
-                                (F2I(c.g * 31.0f + fDither) << 5) |
-                                (F2I(c.b * 31.0f + fDither) << 0));
+            ushort v = (ushort)((F2I(c.r * 31.0 + fDither) << 10) |
+                                (F2I(c.g * 31.0 + fDither) << 5) |
+                                (F2I(c.b * 31.0 + fDither) << 0));
             W16(m_pbData, p, v);
             p += 2;
         }
@@ -465,10 +471,10 @@ internal sealed class CXD3DXCodec_A1R5G5B5 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            ushort v = (ushort)((F2I(c.r * 31.0f + fDither) << 10) |
-                                (F2I(c.g * 31.0f + fDither) << 5) |
-                                (F2I(c.b * 31.0f + fDither) << 0) |
-                                (F2I(c.a * 1.0f + fDither) << 15));
+            ushort v = (ushort)((F2I(c.r * 31.0 + fDither) << 10) |
+                                (F2I(c.g * 31.0 + fDither) << 5) |
+                                (F2I(c.b * 31.0 + fDither) << 0) |
+                                (F2I(c.a * 1.0 + fDither) << 15));
             W16(m_pbData, p, v);
             p += 2;
         }
@@ -502,10 +508,10 @@ internal sealed class CXD3DXCodec_A4R4G4B4 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            ushort v = (ushort)((F2I(c.r * 15.0f + fDither) << 8) |
-                                (F2I(c.g * 15.0f + fDither) << 4) |
-                                (F2I(c.b * 15.0f + fDither) << 0) |
-                                (F2I(c.a * 15.0f + fDither) << 12));
+            ushort v = (ushort)((F2I(c.r * 15.0 + fDither) << 8) |
+                                (F2I(c.g * 15.0 + fDither) << 4) |
+                                (F2I(c.b * 15.0 + fDither) << 0) |
+                                (F2I(c.a * 15.0 + fDither) << 12));
             W16(m_pbData, p, v);
             p += 2;
         }
@@ -539,9 +545,9 @@ internal sealed class CXD3DXCodec_R3G3B2 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            m_pbData[pub] = (byte)((F2I(c.r * 7.0f + fDither) << 5) |
-                                   (F2I(c.g * 7.0f + fDither) << 2) |
-                                   (F2I(c.b * 3.0f + fDither) << 0));
+            m_pbData[pub] = (byte)((F2I(c.r * 7.0 + fDither) << 5) |
+                                   (F2I(c.g * 7.0 + fDither) << 2) |
+                                   (F2I(c.b * 3.0 + fDither) << 0));
             pub++;
         }
     }
@@ -573,7 +579,7 @@ internal sealed class CXD3DXCodec_A8 : CXD3DXCodec
         for (uint i = 0; i < m_uWidth; i++)
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
-            m_pbData[pub] = (byte)F2I(pColors[off + (int)i].a * 255.0f + fDither);
+            m_pbData[pub] = (byte)F2I(pColors[off + (int)i].a * 255.0 + fDither);
             pub++;
         }
     }
@@ -605,10 +611,10 @@ internal sealed class CXD3DXCodec_A8R3G3B2 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            ushort v = (ushort)((F2I(c.r * 7.0f + fDither) << 5) |
-                                (F2I(c.g * 7.0f + fDither) << 2) |
-                                (F2I(c.b * 3.0f + fDither) << 0) |
-                                (F2I(c.a * 255.0f + fDither) << 8));
+            ushort v = (ushort)((F2I(c.r * 7.0 + fDither) << 5) |
+                                (F2I(c.g * 7.0 + fDither) << 2) |
+                                (F2I(c.b * 3.0 + fDither) << 0) |
+                                (F2I(c.a * 255.0 + fDither) << 8));
             W16(m_pbData, p, v);
             p += 2;
         }
@@ -642,9 +648,9 @@ internal sealed class CXD3DXCodec_X4R4G4B4 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            ushort v = (ushort)((F2I(c.r * 15.0f + fDither) << 8) |
-                                (F2I(c.g * 15.0f + fDither) << 4) |
-                                (F2I(c.b * 15.0f + fDither) << 0));
+            ushort v = (ushort)((F2I(c.r * 15.0 + fDither) << 8) |
+                                (F2I(c.g * 15.0 + fDither) << 4) |
+                                (F2I(c.b * 15.0 + fDither) << 0));
             W16(m_pbData, p, v);
             p += 2;
         }
@@ -692,7 +698,7 @@ internal sealed class CXD3DXCodec_A8P8 : CXD3DXCodec
                     uMin = u;
             }
 
-            ushort v = (ushort)(uMin | (uint)(F2I(pColors[off + (int)i].a * 255.0f + fDither) << 8));
+            ushort v = (ushort)(uMin | (uint)(F2I(pColors[off + (int)i].a * 255.0 + fDither) << 8));
             W16(m_pbData, p, v);
             p += 2;
         }
@@ -765,7 +771,7 @@ internal sealed class CXD3DXCodec_L8 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            m_pbData[pub] = (byte)F2I((c.r * 0.2125f + c.g * 0.7154f + c.b * 0.0721f) * 255.0f + fDither);
+            m_pbData[pub] = (byte)F2I((c.r * 0.2125 + c.g * 0.7154 + c.b * 0.0721) * 255.0 + fDither);
             pub++;
         }
     }
@@ -796,8 +802,8 @@ internal sealed class CXD3DXCodec_A8L8 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            ushort v = (ushort)((F2I((c.r * 0.2125f + c.g * 0.7154f + c.b * 0.0721f) * 255.0f + fDither) << 0) |
-                                (F2I(c.a * 255.0f + fDither) << 8));
+            ushort v = (ushort)((F2I((c.r * 0.2125 + c.g * 0.7154 + c.b * 0.0721) * 255.0 + fDither) << 0) |
+                                (F2I(c.a * 255.0 + fDither) << 8));
             W16(m_pbData, p, v);
             p += 2;
         }
@@ -830,8 +836,8 @@ internal sealed class CXD3DXCodec_A4L4 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            m_pbData[pub] = (byte)((F2I((c.r * 0.2125f + c.g * 0.7154f + c.b * 0.0721f) * 15.0f + fDither) << 0) |
-                                   (F2I(c.a * 15.0f + fDither) << 4));
+            m_pbData[pub] = (byte)((F2I((c.r * 0.2125 + c.g * 0.7154 + c.b * 0.0721) * 15.0 + fDither) << 0) |
+                                   (F2I(c.a * 15.0 + fDither) << 4));
             pub++;
         }
     }
@@ -867,8 +873,8 @@ internal sealed class CXD3DXCodec_V8U8 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            ushort v = (ushort)(((F2I(c.r * 128.0f + fDither) & 255) << 0) |
-                                ((F2I(c.g * 128.0f + fDither) & 255) << 8));
+            ushort v = (ushort)(((F2I(c.r * 128.0 + fDither) & 255) << 0) |
+                                ((F2I(c.g * 128.0 + fDither) & 255) << 8));
             W16(m_pbData, p, v);
             p += 2;
         }
@@ -901,9 +907,9 @@ internal sealed class CXD3DXCodec_L6V5U5 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            uint v = (uint)(((F2I(c.r * 16.0f + fDither) & 31) << 0) |
-                            ((F2I(c.g * 16.0f + fDither) & 31) << 5) |
-                            ((F2I(c.a * 63.0f + fDither) & 63) << 10));
+            uint v = (uint)(((F2I(c.r * 16.0 + fDither) & 31) << 0) |
+                            ((F2I(c.g * 16.0 + fDither) & 31) << 5) |
+                            ((F2I(c.a * 63.0 + fDither) & 63) << 10));
             W16(m_pbData, p, (ushort)v);
             p += 2;
         }
@@ -943,9 +949,9 @@ internal sealed class CXD3DXCodec_X8L8V8U8 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            uint v = (uint)(((F2I(c.r * 128.0f + fDither) & 255) << 0) |
-                            ((F2I(c.g * 128.0f + fDither) & 255) << 8) |
-                            ((F2I(c.a * 255.0f + fDither) & 255) << 16));
+            uint v = (uint)(((F2I(c.r * 128.0 + fDither) & 255) << 0) |
+                            ((F2I(c.g * 128.0 + fDither) & 255) << 8) |
+                            ((F2I(c.a * 255.0 + fDither) & 255) << 16));
             W32(m_pbData, p, v);
             p += 4;
         }
@@ -978,10 +984,10 @@ internal sealed class CXD3DXCodec_Q8W8V8U8 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            uint v = (uint)(((F2I(c.r * 128.0f + fDither) & 255) << 0) |
-                            ((F2I(c.g * 128.0f + fDither) & 255) << 8) |
-                            ((F2I(c.b * 128.0f + fDither) & 255) << 16) |
-                            ((F2I(c.a * 128.0f + fDither) & 255) << 24));
+            uint v = (uint)(((F2I(c.r * 128.0 + fDither) & 255) << 0) |
+                            ((F2I(c.g * 128.0 + fDither) & 255) << 8) |
+                            ((F2I(c.b * 128.0 + fDither) & 255) << 16) |
+                            ((F2I(c.a * 128.0 + fDither) & 255) << 24));
             W32(m_pbData, p, v);
             p += 4;
         }
@@ -1014,8 +1020,8 @@ internal sealed class CXD3DXCodec_V16U16 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            uint v = (uint)(((F2I(c.r * 32768.0f + fDither) & 65535) << 0) |
-                            ((F2I(c.g * 32768.0f + fDither) & 65535) << 16));
+            uint v = (uint)(((F2I(c.r * 32768.0 + fDither) & 65535) << 0) |
+                            ((F2I(c.g * 32768.0 + fDither) & 65535) << 16));
             W32(m_pbData, p, v);
             p += 4;
         }
@@ -1048,9 +1054,9 @@ internal sealed class CXD3DXCodec_W11V11U10 : CXD3DXCodec
         {
             float fDither = m_pfDither[db + (int)(i & 3)];
             ref D3DXCOLOR c = ref pColors[off + (int)i];
-            uint v = (uint)(((F2I(c.r * 512.0f + fDither) & 1023) << 0) |
-                            ((F2I(c.g * 1024.0f + fDither) & 2047) << 10) |
-                            ((F2I(c.b * 1024.0f + fDither) & 2046) << 21));
+            uint v = (uint)(((F2I(c.r * 512.0 + fDither) & 1023) << 0) |
+                            ((F2I(c.g * 1024.0 + fDither) & 2047) << 10) |
+                            ((F2I(c.b * 1024.0 + fDither) & 2046) << 21));
             W32(m_pbData, p, v);
             p += 4;
         }
@@ -1140,10 +1146,10 @@ internal class CXD3DXCodecYUV : CXD3DXCodec
             float fU = -37.797f * m_pCache[pc + 0].r + -74.203f * m_pCache[pc + 0].g + 112.000f * m_pCache[pc + 0].b;
             float fV = 112.000f * m_pCache[pc + 0].r + -93.786f * m_pCache[pc + 0].g + -18.214f * m_pCache[pc + 0].b;
 
-            int nY0 = F2I(fY0 + 0.5f) + 16;
-            int nY1 = F2I(fY1 + 0.5f) + 16;
-            int nU = F2I(fU + 0.5f) + 128;
-            int nV = F2I(fV + 0.5f) + 128;
+            int nY0 = F2I(fY0 + 0.5) + 16;
+            int nY1 = F2I(fY1 + 0.5) + 16;
+            int nU = F2I(fU + 0.5) + 128;
+            int nV = F2I(fV + 0.5) + 128;
 
             nY0 = (nY0 < 0) ? 0 : ((nY0 > 0xff) ? 0xff : nY0);
             nY1 = (nY1 < 0) ? 0 : ((nY1 > 0xff) ? 0xff : nY1);
