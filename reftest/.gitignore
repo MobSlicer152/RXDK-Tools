@@ -1,0 +1,9 @@
+# Everything in here except the analysis scripts and the latest sweep report is
+# scratch: reference skins, regenerated bundles and probe trees, all of which the
+# scripts reproduce on demand.
+*
+!*/
+!.gitignore
+!*.ps1
+!*.py
+!bundler-sweep.txt
