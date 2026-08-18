@@ -49,6 +49,10 @@ internal sealed class XprBuilder(bool keepRdf, bool quiet)
             // unlike bundler.exe which uses the alpha/X channel (byte 3). Keep the
             // skin's shipped byte-parity by opting into the blue-channel merge.
             bundler.AlphaFromBlueChannel = true;
+            // skinbld.exe runs the codec at the default 53-bit x87 precision, unlike
+            // bundler.exe which pins _PC_24 (float). Keep the skin's shipped bytes by
+            // evaluating the scale-and-dither expression in full double precision.
+            bundler.FullPrecisionF2I = true;
             bundler.Initialize([.. args]);
             bundler.Process();
 

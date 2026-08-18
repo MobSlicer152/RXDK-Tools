@@ -63,6 +63,10 @@ internal sealed class Bundler
     // the shared codec keeps bundler's behaviour by default and skinbld opts in.
     public bool AlphaFromBlueChannel;
 
+    // bundler.exe pins the x87 to _PC_24 (float precision); skinbld.exe runs at the
+    // default 53-bit. Off = bundler's float-precision F2I; skinbld sets it on.
+    public bool FullPrecisionF2I;
+
     private RdfReader _reader = null!;
 
     // Offsets-table bookkeeping (XPR1). Exposed so resource handlers can add the
@@ -146,6 +150,11 @@ internal sealed class Bundler
     // --- process (bundler.cpp Process) ----------------------------------------
     public void Process()
     {
+        // Set the codec's x87-precision emulation for this run. Reset every time so
+        // a skinbld build and a plain bundler build never leak precision into each
+        // other when both run in one process.
+        CXD3DXCodec.FullPrecision = FullPrecisionF2I;
+
         if (SingleTexture)
         {
             var t = new Texture2D(this);

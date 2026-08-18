@@ -137,12 +137,16 @@ internal class CXD3DXCodec
 
     // ---- Fast FLOAT->INT (truncate toward zero, matching F2IBegin RC=CLAMP + fistp) ----
     //
-    // The argument is double even though every caller feeds it a float expression.
-    // The original ran with the x87 precision control pinned to 24 bits, so its
-    // stored floats are what a C# float holds - but the scale-and-dither
-    // expression handed to F2I never reached memory, so it kept register width.
-    // Rounding it to float first would round ties like 151.5 the wrong way.
-    public static int F2I(double f) => (int)f;
+    // The scale-and-dither expression handed to F2I is written in double, matching
+    // the leaked codec's "kept register width" intent. The two shipped tools then
+    // differ in x87 precision: bundler.exe pins _PC_24 (24-bit mantissa = float),
+    // while skinbld.exe runs at the default 53-bit. FullPrecision=false reproduces
+    // _PC_24 by narrowing the double result to float before the truncating fistp;
+    // this is bit-identical to evaluating the whole expression in float. skinbld
+    // sets FullPrecision=true to keep the wider result. Bundler.Process resets the
+    // flag every run, so the two tools never leak precision into each other.
+    public static bool FullPrecision;
+    public static int F2I(double f) => (int)(FullPrecision ? f : (float)f);
 
     // ---- Little-endian surface access ----
     protected static ushort R16(byte[] b, int o) => (ushort)(b[o] | (b[o + 1] << 8));

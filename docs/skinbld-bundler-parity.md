@@ -13,7 +13,7 @@ Both tools build and run cross-platform (.NET 8, no Win32 dependencies).
 | `sk_res.h` | identical to the committed copy (only the embedded input path differs) |
 | Shared default skin | 5334 differing bytes of 2,066,512 (0.26%) |
 | `UIXKeyboard.uix` | 10 differing bytes of 2,519,286 |
-| Shipped `.rdf`/`.xpr` pairs | 375 of 439 byte-identical, 0 build failures |
+| Shipped `.rdf`/`.xpr` pairs | 430 of 439 byte-identical, 0 build failures |
 
 Everything except DXT **colour** halves now matches in both skins: object and
 property tables, all nine localised string tables, audio, the section directory,
@@ -89,22 +89,36 @@ float-to-int question below was settled — plus `uixnames.py`, `uixstr.py`,
 
 ## Findings that were expensive to reach
 
-**Float-to-int conversion keeps register width.** `bundler.cpp` pins the x87
-precision control to 24 bits (`_controlfp(_PC_24, _MCW_PC)`, with a comment
-saying it is deliberate for bit-for-bit output), so every *stored* float matches
-a C# `float` and the resample accumulation must be `float` throughout. But the
-scale-and-dither expression handed to `F2I` — `pColors[i].g * 255.0f + fDither`
-— never reaches memory, so it is **not** rounded to `float` before the
-truncating `fistp`. Rounding it, as a straight transcription does, turns
-`151.4999986` into exactly `151.5` and then into `152`.
+**Float-to-int conversion — the two tools ran the FPU at different precision.**
+`bundler.cpp` pins the x87 precision control to 24 bits
+(`_controlfp(_PC_24, _MCW_PC)`, with a comment saying it is deliberate for
+bit-for-bit output), so *every* arithmetic result — including the scale-and-dither
+expression `pColors[i].g * 255.0f + fDither` handed to `F2I(FLOAT)` — is rounded
+to a 24-bit mantissa, i.e. float precision. The leaked codec is float throughout:
+`F2I` takes a `FLOAT` and every scale literal is a float literal (`255.0f`,
+`31.0f`, `0.2125f`, …).
 
-Every disputed pixel sat precisely on a `.5` tie, and the reference broke those
-ties in both directions (up on 14, down on 5) — that inconsistency is the tell.
-Sweeping 24 combinations of which values are narrowed against the reference
-pixels, exactly one model gives **0 of 9216 differing channels** across three
-independent source images: narrow everything except the conversion expression.
-`CD3DXCodec.F2I` therefore takes a `double`, and the scale literals in its
-arguments are double literals.
+An earlier port made `F2I` take a `double` with double scale literals, reasoning
+that the expression "never reaches memory so keeps register width." That is the
+wrong reading of `_PC_24` — the register *mantissa* is 24 bits, not 80. Full
+53-bit doubles carry precision the hardware never had, and on the small fraction
+of pixels whose value sits within a ULP of an integer boundary the extra bits
+truncate one step differently, leaving a systematic ±1 tail on every resized/mip
+texture (e.g. `Input\DebugKeyboard` was 48 bytes, `Graphics\Trees` 3282, and the
+uncompressed half of `PlayField` 2919 — all off by exactly one).
+
+The fix: reproduce `_PC_24` by narrowing the double expression to `float` before
+the truncating `fistp` — `F2I(f) => (int)(float)f` — which is bit-identical to
+evaluating the whole expression in float (verified: `Trees`, `DebugKeyboard`,
+`Lensflare`, `Dolphin` all go to **0**). That alone took the sweep from 375 to
+**430 of 439 byte-identical** with no regressions.
+
+But `skinbld.exe` does **not** pin `_PC_24` — it runs at the default 53-bit. Its
+shipped skin keeps the wider result: forcing float there *adds* 21 off-by-one
+bytes (0 fixed) to the default skin. So precision is a per-tool divergence, wired
+exactly like the alpha merge: `CXD3DXCodec.FullPrecision` is off for `bundler`
+(narrow to float) and `Rxdk.SkinBld` sets it on (keep double). `Bundler.Process`
+resets the flag each run so the two never leak precision into each other.
 
 **Resource-ID hash:** `h = h * 0x112 + upper(c) ^ 0xA563` over `"Section$Name"`,
 with `Screen` hardcoded to `0x40001001`.
@@ -143,13 +157,16 @@ before the filtered paths. Worth remembering before "simplifying" a resize.
 **Texture descriptor:** the DMA channel bit is forced to legacy channel A to
 match 5849 output.
 
-## Known deviation from the original
+## Re-derived: `allSame`'s `force4` is load-bearing, not a bug
 
-`S3Tc`'s `allSame` carries a hand-added `force4` flag to stop DXT2-5 emitting
-3-colour ramps. The leaked `allSame` has no such parameter — it receives
-`nColors = block->inLevel` and infers the constraint. This was a guess made
-before the leaked source was consulted and should be re-derived against
-`s3_quant.cpp` line 1329 onward; it may be causing some of the residual.
+`S3Tc`'s `allSame` carries a `force4` flag that the leaked `allSame` lacks (the
+leak always runs the full endpoint / one-half / one-third choice for a 4-colour
+ramp). It was flagged as a guess to re-derive against `s3_quant.cpp` line 1329.
+Re-derived: **keep it.** Removing it (matching the leak line-for-line) leaves the
+sample sweep completely unchanged but regresses the default skin from 5334 to
+**18911** differing bytes — `skinbld`'s DXT2/3 blocks depend on suppressing the
+mid-point (3-colour) representation. So `force4` is another `skinbld`-vs-`bundler`
+divergence that happens to be inert on the standalone bundles, not a defect.
 
 ## Incident to avoid repeating
 
@@ -185,26 +202,24 @@ bundler use its default output paths while sweeping the sample tree.**
    | `Input\Gamepad` | 9292 | 414 |
    | `Graphics\PaintEffect` | 3291 | 11 |
 
-   The residuals are now the item-2 colour tail (DXT endpoints) plus the
-   uncompressed-resample rounding tail (e.g. PlayField's remaining 3371 are 2919
-   RGB bytes in the alpha-less `Football` texture and 423 in the `Grass` DXT1
-   block, with no alpha bytes left). `DynamicGamma`'s 18472 is likewise spread
-   across all four channels of its `X8R8G8B8` textures — a pure resample tail, not
-   alpha. Full list in `reftest/bundler-sweep.txt`.
-
-   Still-open small groups untouched by this fix: the repeated `99` bytes across
-   the Dolphin variants / PerPixelLighting / PersistDisplay and `48` across
-   DebugKeyboard / DebugMouse / AsyncWrite / SectionLoad (one shared fix should
-   clear each group), and the three CJK fonts at 46–79 bytes each.
-2. **DXT colour-endpoint tie-breaks** — the long tail, including all 5334 bytes
-   in the default skin. Endpoints differ by a single 6-bit step (e.g. green 34
-   vs 36), and some blocks agree on endpoints but disagree on indices. Inputs to
-   the compressor are now provably exact, so this is purely quantiser decisions
-   in `s3_quant.cpp`'s `search43Mult`/`roundMult`/`allSame`. Re-check the
-   `force4` deviation above first, then apply the register-width model: the leak
-   declares its variables `double`, and under `_PC_24` each operation rounds to
-   24 bits, so a wide *operand* (a double literal) combined with a 24-bit
-   *result* is the shape to look for.
+   The uncompressed-resample rounding tail this left behind was then cleared by
+   the `_PC_24` precision fix (see the F2I finding): the shared `48`/`99` groups,
+   the CJK fonts, `Fire`, `Marketplace`, `PolynomialTextureMaps`, and the
+   uncompressed half of `PlayField` all go to **0**. The full sweep is now **430
+   of 439 byte-identical** (from 375), zero regressions.
+2. **DXT colour-endpoint tie-breaks — the last 9 samples.** These are all that
+   remain: `BillBoard` (1033), `DynamicGamma` (18314), `HeatShimmer` (79),
+   `PerfTest`/`VolumeLight` (779 each), `PlayField` (410, the `Grass` DXT1 block),
+   `QuadLerp` (173), `Water\nonwater` (430), `XPRViewer` (817), plus all 5334
+   bytes of the default skin. Deltas are DXT endpoint steps (8/16/24/32/64/128 in
+   the packed 565), and some blocks agree on endpoints but disagree on indices.
+   Inputs to the compressor are provably exact and the resample tail is gone, so
+   this is purely quantiser decisions in `s3_quant.cpp`'s
+   `search43Mult`/`roundMult`. Apply the same register-width model that fixed the
+   codec: the leak declares its variables `double`, and under bundler's `_PC_24`
+   each operation rounds to 24 bits, so `S3Tc`'s `double` quantiser math likely
+   needs the same narrow-to-float treatment (but *not* for the skin, which
+   `skinbld` builds at 53-bit — the same per-tool split as the codec precision).
 3. **Wire `Rxdk.SkinBld` into the build / media-restore path** so no Win32 tool
    is needed.
 4. Add a regression test that runs `Sweep-Bundler.ps1` and the two skin diffs,
