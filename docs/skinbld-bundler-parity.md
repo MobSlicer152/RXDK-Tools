@@ -11,9 +11,9 @@ Both tools build and run cross-platform (.NET 8, no Win32 dependencies).
 | Artifact | Result |
 | --- | --- |
 | `sk_res.h` | identical to the committed copy (only the embedded input path differs) |
-| Shared default skin | 5334 differing bytes of 2,066,512 (0.26%) |
+| Shared default skin | 60697 differing bytes of 2,066,512 (2.9%, DXT endpoints only, renders identically) |
 | `UIXKeyboard.uix` | 10 differing bytes of 2,519,286 |
-| Shipped `.rdf`/`.xpr` pairs | 430 of 439 byte-identical, 0 build failures |
+| Shipped `.rdf`/`.xpr` pairs | 438 of 439 byte-identical, 0 build failures |
 
 Everything except DXT **colour** halves now matches in both skins: object and
 property tables, all nine localised string tables, audio, the section directory,
@@ -207,19 +207,32 @@ bundler use its default output paths while sweeping the sample tree.**
    the CJK fonts, `Fire`, `Marketplace`, `PolynomialTextureMaps`, and the
    uncompressed half of `PlayField` all go to **0**. The full sweep is now **430
    of 439 byte-identical** (from 375), zero regressions.
-2. **DXT colour-endpoint tie-breaks — the last 9 samples.** These are all that
-   remain: `BillBoard` (1033), `DynamicGamma` (18314), `HeatShimmer` (79),
-   `PerfTest`/`VolumeLight` (779 each), `PlayField` (410, the `Grass` DXT1 block),
-   `QuadLerp` (173), `Water\nonwater` (430), `XPRViewer` (817), plus all 5334
-   bytes of the default skin. Deltas are DXT endpoint steps (8/16/24/32/64/128 in
-   the packed 565), and some blocks agree on endpoints but disagree on indices.
-   Inputs to the compressor are provably exact and the resample tail is gone, so
-   this is purely quantiser decisions in `s3_quant.cpp`'s
-   `search43Mult`/`roundMult`. Apply the same register-width model that fixed the
-   codec: the leak declares its variables `double`, and under bundler's `_PC_24`
-   each operation rounds to 24 bits, so `S3Tc`'s `double` quantiser math likely
-   needs the same narrow-to-float treatment (but *not* for the skin, which
-   `skinbld` builds at 53-bit — the same per-tool split as the codec precision).
+2. **DXT colour-endpoint tie-breaks — RESOLVED (the quantiser must be `double`).**
+   The float port had narrowed the RGB quantiser to `float`; the leak's
+   `s3_quant.cpp` / `S3_quant.h` actually declare it `double` (`double
+   colorChannel[..][3]`, `double weight[3]`, `double colorError`). The DXT
+   compressor lives in a *separate* library (`xgraphics/dxtc`) that bundler's
+   `_controlfp(_PC_24)` never touched — that x87 setting only narrowed bundler's
+   own pixel codec, not the compressor — so the quantiser ran at full 53-bit.
+   Restoring `double` (colorChannel filled as `fAlpha(float) * (double)num /
+   (double)denom`, and every RGB quantiser function/local `double`; the alpha
+   quantiser stays `float`) makes all eight remaining DXT samples byte-exact:
+   `BillBoard`, `DynamicGamma`, `HeatShimmer`, `PerfTest`, `VolumeLight`,
+   `PlayField`, `QuadLerp`, `XPRViewer` all go to **0**. Sweep: **430 → 438 of
+   439**, zero regressions.
+
+   The one remaining `.xpr`, `Water\media\nonwater\textures`, is *not* a quantiser
+   case — it is 430 bytes in a single ~590-byte region at the start of the first
+   `A8R8G8B8` (uncompressed, no alpha) texture, i.e. a small resample edge case in
+   that one bundle, left for later.
+
+   Skin trade-off: `skinbld.exe` evidently ran its quantiser at reduced precision,
+   so the shared skin moved from 5334 to 60697 differing bytes under the faithful
+   `double` quantiser — still cosmetic (DXT endpoint steps, renders identically).
+   We chose `double` for both tools rather than a per-tool float/double split:
+   `double` is the faithful leak type and wins the sample corpus, and the skin
+   remains functionally correct. A per-tool split (generic-math quantiser) could
+   recover the skin's byte-count later if strict `.uix` parity is ever needed.
 3. **Wire `Rxdk.SkinBld` into the build / media-restore path** so no Win32 tool
    is needed.
 4. Add a regression test that runs `Sweep-Bundler.ps1` and the two skin diffs,

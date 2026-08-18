@@ -1,11 +1,3 @@
-439 pairs: 430 byte-identical, 9 differing, 0 failed to build
+439 pairs: 438 byte-identical, 1 differing, 0 failed to build
 
-DIFF  Graphics\BillBoard\resource.rdf                                1033 of 6850560
-DIFF  Graphics\DynamicGamma\resource.rdf                             18314 of 7692288
-DIFF  Graphics\HeatShimmer\resource.rdf                              79 of 10164224
-DIFF  Graphics\PerfTest\resource.rdf                                 779 of 6647808
-DIFF  Graphics\PlayField\Resource.rdf                                410 of 6469632
-DIFF  Graphics\QuadLerp\resource.rdf                                 173 of 38912
-DIFF  Graphics\VolumeLight\resource.rdf                              779 of 6647808
 DIFF  Graphics\Water\media\nonwater\textures\textures.rdf            430 of 7473152
-DIFF  Graphics\XPRViewer\textures.rdf                                817 of 4792320

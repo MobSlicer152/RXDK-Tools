@@ -1,12 +1,19 @@
 // Faithful, byte-exact C# port of the Xbox XGRAPHICS S3TC / DXT texture compressor.
 //
-// PRECISION CAVEAT: the XDK bundler runs with _controlfp(_PC_24) — the x87 FPU forced
-// to a 24-bit (single-precision) mantissa "to maintain bit-for-bit output". This port
-// keeps the original C `double` types, which C# evaluates at full 53-bit precision, so a
-// small fraction of borderline DXT blocks (~0.16% measured on XPRViewer) pick a different
-// endpoint than the golden .xpr. Output is visually identical and renders correctly;
-// reaching 100% byte-exact would require emulating _PC_24 (round double intermediates to
-// float) throughout the quantizer. Intentionally not done (see project notes).
+// PRECISION: the RGB quantizer is `double` throughout — matching the leak, whose
+// RGBBlock carries `double colorChannel[..][3]` / `double weight[3]` and whose
+// s3_quant.cpp declares its locals `double`. The DXT compressor lives in a
+// separate library (xgraphics/dxtc) that is NOT affected by bundler.cpp's
+// `_controlfp(_PC_24)` — that x87 setting only narrows bundler's own pixel codec
+// to float (see CD3DXCodec.FullPrecision). Running the quantizer in double is what
+// makes bundler.exe's DXT output byte-exact (438/439 shipped .xpr). An earlier port
+// wrongly narrowed the whole quantizer to float, which mispicked endpoints on a
+// fraction of blocks. The ALPHA quantizer stays `float` (leak: `float alpha[]`).
+//
+// NOTE: skinbld.exe evidently ran its quantizer at reduced precision, so the shared
+// default skin is a few percent of DXT endpoint bytes off the golden .uix (cosmetic,
+// renders identically). Reproducing that would need a per-tool float/double split;
+// deliberately not done — double is the faithful type and wins the sample corpus.
 //
 // Sources ported line-for-line (do NOT optimize/restructure — the goal is that this
 // produces bit-identical DXT block data to the original):
@@ -561,8 +568,8 @@ internal static class S3Tc
                                             : 1.0f;
                                         for (i = 0; i < 3; i++)
                                             b.colorChannel[pc][i] =
-                                                fAlpha * (float)((dwCurTexel & rgbBitMask[i]) >> (int)rgbShift[i])
-                                                / (float)(rgbBitMask[i] >> (int)rgbShift[i]);
+                                                fAlpha * (double)((dwCurTexel & rgbBitMask[i]) >> (int)rgbShift[i])
+                                                / (double)(rgbBitMask[i] >> (int)rgbShift[i]);
                                     }
                                     else
                                     {
@@ -586,7 +593,7 @@ internal static class S3Tc
                                             for (i = 0; i < 3; i++)
                                                 b.colorChannel[pc][i] =
                                                     ((dwCurTexel & rgbBitMask[i]) >> (int)rgbShift[i])
-                                                    / (float)(rgbBitMask[i] >> (int)rgbShift[i]);
+                                                    / (double)(rgbBitMask[i] >> (int)rgbShift[i]);
                                         }
                                         else
                                         {
@@ -683,8 +690,8 @@ internal static class S3Tc
     private sealed class RGBBlock
     {
         public int n;
-        public float[][] colorChannel = NewJ(MAX_PIXEL_PER_BLOCK, 3);
-        public float[] weight = new float[3];
+        public double[][] colorChannel = NewJd(MAX_PIXEL_PER_BLOCK, 3);
+        public double[] weight = new double[3];
         public int inLevel;
         /// <summary>Set for DXT2-5, where only the 4-colour ramp is legal.</summary>
         public bool force4;
@@ -706,10 +713,18 @@ internal static class S3Tc
     }
 
     // ---- jagged-array helpers ----
+    // The RGB quantizer works in double (leak: double colorChannel/weight/q, in a
+    // library not covered by bundler's _PC_24), the alpha quantizer in float.
     private static float[][] NewJ(int r, int c)
     {
         var a = new float[r][];
         for (int i = 0; i < r; i++) a[i] = new float[c];
+        return a;
+    }
+    private static double[][] NewJd(int r, int c)
+    {
+        var a = new double[r][];
+        for (int i = 0; i < r; i++) a[i] = new double[c];
         return a;
     }
     private static int[][] NewJi(int r, int c)
@@ -719,18 +734,20 @@ internal static class S3Tc
         return a;
     }
 
-    // CLIP(X, X_MIN, X_MAX) macro
+    // CLIP(X, X_MIN, X_MAX) macro. Double for the RGB quantizer, float for alpha.
     private static float CLIP(float X, float X_MIN, float X_MAX) =>
         ((Math.Abs(X_MIN - X) + X_MIN) + (X_MAX - Math.Abs(X_MAX - X))) * 0.5f;
+    private static double CLIPd(double X, double X_MIN, double X_MAX) =>
+        ((Math.Abs(X_MIN - X) + X_MIN) + (X_MAX - Math.Abs(X_MAX - X))) * 0.5;
 
     // =========================================================================
     //  RGB QUANTIZER FRONT-END
     // =========================================================================
-    private static void getAxis(int n, float[][] q, float[] axis)
+    private static void getAxis(int n, double[][] q, double[] axis)
     {
-        float[,] s = new float[3, 3];
-        float[,] t = new float[3, 3];
-        float sp, f;
+        double[,] s = new double[3, 3];
+        double[,] t = new double[3, 3];
+        double sp, f;
         int c, i, j;
 
         s[0, 0] = s[0, 1] = s[0, 2] = s[1, 1] = s[1, 2] = s[2, 2] = 0.0f;
@@ -774,7 +791,7 @@ internal static class S3Tc
         i = s[0, 0] > s[1, 1] ?
             (s[0, 0] > s[2, 2] ? 0 : 2) : (s[1, 1] > s[2, 2] ? 1 : 2);
 
-        f = 1.0f / MathF.Sqrt(s[i, i]);
+        f = 1.0f / Math.Sqrt(s[i, i]);
 
         for (j = 0; j < i; j++)
             axis[j] = t[j, i] * f;
@@ -782,16 +799,16 @@ internal static class S3Tc
             axis[j] = t[i, j] * f;
     }
 
-    private static void getDiameter(int n, float[][] q, float[] axis)
+    private static void getDiameter(int n, double[][] q, double[] axis)
     {
-        float dia, tmpDia;
+        double dia, tmpDia;
         int diaInd0 = 0, diaInd1 = 0;
         int i, j;
         for (dia = 0.0f, i = 0; i < n; i++)
         {
             for (j = i; j < n; j++)
             {
-                float c0, c1, c2;
+                double c0, c1, c2;
                 c0 = q[i][0] - q[j][0];
                 c1 = q[i][1] - q[j][1];
                 c2 = q[i][2] - q[j][2];
@@ -805,15 +822,15 @@ internal static class S3Tc
             }
         }
 
-        dia = 1.0f / MathF.Sqrt(dia);
+        dia = 1.0f / Math.Sqrt(dia);
         axis[0] = (q[diaInd0][0] - q[diaInd1][0]) * dia;
         axis[1] = (q[diaInd0][1] - q[diaInd1][1]) * dia;
         axis[2] = (q[diaInd0][2] - q[diaInd1][2]) * dia;
     }
 
-    private static void sortProjection(int n, float[][] q, float[] axis, int[] index, int reverse)
+    private static void sortProjection(int n, double[][] q, double[] axis, int[] index, int reverse)
     {
-        float[] projection = new float[MAX_PIXEL_PER_BLOCK];
+        double[] projection = new double[MAX_PIXEL_PER_BLOCK];
         int[] mask = new int[MAX_PIXEL_PER_BLOCK];
         int i, j, k;
 
@@ -873,17 +890,17 @@ internal static class S3Tc
     // =========================================================================
     //  RGB QUANTIZER COLOR-RAMP FITTING  (static numer/denom, exactly as source)
     // =========================================================================
-    private static float _s43Numer = 0;
-    private static float _s43Denom = 1.0f;
+    private static double _s43Numer = 0;
+    private static double _s43Denom = 1.0f;
 
-    private static float search43Mult(ref int levLim, int n, float[][] q, float[] pMult,
-        int[] idx, float[][] endPointOut, float[] axis)
+    private static double search43Mult(ref int levLim, int n, double[][] q, double[] pMult,
+        int[] idx, double[][] endPointOut, double[] axis)
     {
-        float[][] qs = NewJ(16, 3);
-        float[] mult = new float[16];
-        float[][] kq = NewJ(3, 3);
-        float[] k2 = new float[3];
-        float[] sK = new float[3];
+        double[][] qs = NewJd(16, 3);
+        double[] mult = new double[16];
+        double[][] kq = NewJd(3, 3);
+        double[] k2 = new double[3];
+        double[] sK = new double[3];
 
         int lev = 0;
         int vLev;
@@ -908,7 +925,7 @@ internal static class S3Tc
             {
                 for (i2 = n; ;)
                 {
-                    float num_ = -kq[2][0] * kq[2][0]
+                    double num_ = -kq[2][0] * kq[2][0]
                                   - kq[2][1] * kq[2][1]
                                   - kq[2][2] * kq[2][2];
 
@@ -964,19 +981,19 @@ internal static class S3Tc
         {
             for (; i < jk[j]; i++)
             {
-                sK[2] += (float)j * mult[i];
-                k2[2] += (float)j * (float)j * mult[i];
-                kq[2][0] += (float)j * qs[i][0];
-                kq[2][1] += (float)j * qs[i][1];
-                kq[2][2] += (float)j * qs[i][2];
+                sK[2] += (double)j * mult[i];
+                k2[2] += (double)j * (double)j * mult[i];
+                kq[2][0] += (double)j * qs[i][0];
+                kq[2][1] += (double)j * qs[i][1];
+                kq[2][2] += (double)j * qs[i][2];
             }
             lev += (jk[j] != n) ? 1 : 0;
         }
         k2[2] -= sK[2] * sK[2];
         {
-            float k0 = -sK[2];
-            float k1 = (float)lev - sK[2];
-            float num_ = -kq[2][0] * kq[2][0]
+            double k0 = -sK[2];
+            double k1 = (double)lev - sK[2];
+            double num_ = -kq[2][0] * kq[2][0]
                           - kq[2][1] * kq[2][1]
                           - kq[2][2] * kq[2][2];
 
@@ -991,17 +1008,17 @@ internal static class S3Tc
         }
     }
 
-    private static float _scNumer = 0;
-    private static float _scDenom = 1.0f;
+    private static double _scNumer = 0;
+    private static double _scDenom = 1.0f;
 
-    private static float searchClipped43Mult(ref int levLim, int n, float[][] q, float[] pMult,
-        int[] idx, float[][] range, float[][] endPointOut, float[] axis)
+    private static double searchClipped43Mult(ref int levLim, int n, double[][] q, double[] pMult,
+        int[] idx, double[][] range, double[][] endPointOut, double[] axis)
     {
-        float[][] qs = NewJ(16, 3);
-        float[] mult = new float[16];
-        float[][] kq = NewJ(3, 3);
-        float[] k2 = new float[3];
-        float[] sK = new float[3];
+        double[][] qs = NewJd(16, 3);
+        double[] mult = new double[16];
+        double[][] kq = NewJd(3, 3);
+        double[] k2 = new double[3];
+        double[] sK = new double[3];
 
         int lev = 0;
         int vLev;
@@ -1026,20 +1043,20 @@ internal static class S3Tc
             {
                 for (i2 = n; ;)
                 {
-                    float k0 = -sK[2];
-                    float k1 = (float)lev - sK[2];
-                    float f00 = k2[2] + k0 * k0;
-                    float f01 = k2[2] + k0 * k1;
-                    float f11 = k2[2] + k1 * k1;
-                    float f0011 = f00 * f11;
-                    float den_ = k2[2] * f0011 * f0011 * (float)lev * (float)lev;
-                    float num_ = 0;
+                    double k0 = -sK[2];
+                    double k1 = (double)lev - sK[2];
+                    double f00 = k2[2] + k0 * k0;
+                    double f01 = k2[2] + k0 * k1;
+                    double f11 = k2[2] + k1 * k1;
+                    double f0011 = f00 * f11;
+                    double den_ = k2[2] * f0011 * f0011 * (double)lev * (double)lev;
+                    double num_ = 0;
 
                     for (j = 0; j < 3; j++)
                     {
-                        float x0, x1;
-                        float x0m, x1m;
-                        float x0M, x1M;
+                        double x0, x1;
+                        double x0m, x1m;
+                        double x0M, x1M;
 
                         x1m = range[0][j] * k2[2];
                         x1M = range[1][j] * k2[2];
@@ -1053,17 +1070,17 @@ internal static class S3Tc
                         x1m = (x1m - x1) * f00;
                         x1M = (x1M - x1) * f00;
 
-                        x0 = (CLIP(0.0f, x0m, x0M)) * f01;
+                        x0 = (CLIPd(0.0f, x0m, x0M)) * f01;
 
                         x0m *= f0011;
                         x0M *= f0011;
 
-                        x1 = CLIP(x0, x1m, x1M);
+                        x1 = CLIPd(x0, x1m, x1M);
 
                         x0 = x1 * f01;
                         x1 *= f11;
 
-                        x0 = CLIP(x0, x0m, x0M);
+                        x0 = CLIPd(x0, x0m, x0M);
                         x0m = x0 - x1;
                         x0M = k0 * x1 - k1 * x0;
 
@@ -1124,30 +1141,30 @@ internal static class S3Tc
         {
             for (; i < jk[j]; i++)
             {
-                sK[2] += (float)j * mult[i];
-                k2[2] += (float)j * (float)j * mult[i];
-                kq[2][0] += (float)j * qs[i][0];
-                kq[2][1] += (float)j * qs[i][1];
-                kq[2][2] += (float)j * qs[i][2];
+                sK[2] += (double)j * mult[i];
+                k2[2] += (double)j * (double)j * mult[i];
+                kq[2][0] += (double)j * qs[i][0];
+                kq[2][1] += (double)j * qs[i][1];
+                kq[2][2] += (double)j * qs[i][2];
             }
             lev += (jk[j] != n) ? 1 : 0;
         }
         k2[2] -= sK[2] * sK[2];
         {
-            float k0 = -sK[2];
-            float k1 = (float)lev - sK[2];
-            float f00 = k2[2] + k0 * k0;
-            float f01 = k2[2] + k0 * k1;
-            float f11 = k2[2] + k1 * k1;
-            float f0011 = f00 * f11;
-            float den_ = k2[2] * f0011 * f0011 * (float)lev * (float)lev;
-            float num_ = 0;
+            double k0 = -sK[2];
+            double k1 = (double)lev - sK[2];
+            double f00 = k2[2] + k0 * k0;
+            double f01 = k2[2] + k0 * k1;
+            double f11 = k2[2] + k1 * k1;
+            double f0011 = f00 * f11;
+            double den_ = k2[2] * f0011 * f0011 * (double)lev * (double)lev;
+            double num_ = 0;
 
             for (j = 0; j < 3; j++)
             {
-                float x0, x1;
-                float x0m, x1m;
-                float x0M, x1M;
+                double x0, x1;
+                double x0m, x1m;
+                double x0M, x1M;
 
                 x1m = range[0][j] * k2[2];
                 x1M = range[1][j] * k2[2];
@@ -1161,17 +1178,17 @@ internal static class S3Tc
                 x1m = (x1m - x1) * f00;
                 x1M = (x1M - x1) * f00;
 
-                x0 = (CLIP(0.0f, x0m, x0M)) * f01;
+                x0 = (CLIPd(0.0f, x0m, x0M)) * f01;
 
                 x0m *= f0011;
                 x0M *= f0011;
 
-                x1 = CLIP(x0, x1m, x1M);
+                x1 = CLIPd(x0, x1m, x1M);
 
                 x0 = x1 * f01;
                 x1 *= f11;
 
-                x0 = CLIP(x0, x0m, x0M);
+                x0 = CLIPd(x0, x0m, x0M);
                 x0m = x0 - x1;
                 x0M = k0 * x1 - k1 * x0;
 
@@ -1193,19 +1210,19 @@ internal static class S3Tc
     // =========================================================================
     private static readonly int[] _roundBitNum = { 5, 6, 5 };
 
-    private static float roundMult(int nColors, int n, float[][] q, float[] pMult,
-        float[] w, float[][] endPointIn, int[][] endPointOut, int[] index)
+    private static double roundMult(int nColors, int n, double[][] q, double[] pMult,
+        double[] w, double[][] endPointIn, int[][] endPointOut, int[] index)
     {
         // ramp[3][4][4], rampVal[3][4][4*16]
-        float[][][] ramp = new float[3][][];
-        float[][][] rampVal = new float[3][][];
+        double[][][] ramp = new double[3][][];
+        double[][][] rampVal = new double[3][][];
         for (int a2 = 0; a2 < 3; a2++)
         {
-            ramp[a2] = NewJ(4, 4);
-            rampVal[a2] = NewJ(4, 4 * MAX_PIXEL_PER_BLOCK);
+            ramp[a2] = NewJd(4, 4);
+            rampVal[a2] = NewJd(4, 4 * MAX_PIXEL_PER_BLOCK);
         }
-        float m;
-        float cf;
+        double m;
+        double cf;
 
         int[,,] iRamp = new int[3, 4, 4];
 
@@ -1226,7 +1243,7 @@ internal static class S3Tc
                 c = (int)Math.Floor(cf);
                 c = c < 0 ? 0 : (c < 256 ? c : (256 - lSB));
                 c &= (256 - lSB);
-                if ((float)(c + (c >> _roundBitNum[i])) > cf)
+                if ((double)(c + (c >> _roundBitNum[i])) > cf)
                     c = (c - lSB) < 0 ? c : (c - lSB);
                 iRamp[i, 0, j] = iRamp[i, 1 + j, j] = c + (c >> _roundBitNum[i]);
                 c = (c + lSB) < 256 ? (c + lSB) : c;
@@ -1243,9 +1260,9 @@ internal static class S3Tc
                     int p;
                     iRamp[i, j, 2] = (iRamp[i, j, 0] + iRamp[i, j, 1]) / 2;
                     for (k = 0; k < 3; k++)
-                        ramp[i][j][k] = (float)iRamp[i, j, k] * w[i] / 255.0f;
+                        ramp[i][j][k] = (double)iRamp[i, j, k] * w[i] / 255.0f;
 
-                    float[] pv = rampVal[i][j];
+                    double[] pv = rampVal[i][j];
                     for (p = 0, k = 0; k < n; k++)
                     {
                         pv[p++] = pMult[k] * (q[k][i] - ramp[i][j][0]) * (q[k][i] - ramp[i][j][0]);
@@ -1265,9 +1282,9 @@ internal static class S3Tc
                     iRamp[i, j, 2] = (2 * iRamp[i, j, 0] + iRamp[i, j, 1] + 1) / 3;
                     iRamp[i, j, 3] = (iRamp[i, j, 0] + 2 * iRamp[i, j, 1] + 1) / 3;
                     for (k = 0; k < 4; k++)
-                        ramp[i][j][k] = (float)iRamp[i, j, k] * w[i] / 255.0f;
+                        ramp[i][j][k] = (double)iRamp[i, j, k] * w[i] / 255.0f;
 
-                    float[] pv = rampVal[i][j];
+                    double[] pv = rampVal[i][j];
                     for (p = 0, k = 0; k < n; k++)
                     {
                         pv[p++] = pMult[k] * (q[k][i] - ramp[i][j][0]) * (q[k][i] - ramp[i][j][0]);
@@ -1281,15 +1298,15 @@ internal static class S3Tc
 
         if (nColors == 4)
         {
-            m = 2.0f * (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]) * (float)MAX_PIXEL_PER_BLOCK;
+            m = 2.0f * (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]) * (double)MAX_PIXEL_PER_BLOCK;
 
             for (i0 = -1, i = 0; i < 64; i++)
             {
-                float a, bb, c2;
-                float[] p0 = rampVal[0][i & 0x3];
-                float[] p1 = rampVal[1][(i >> 2) & 0x3];
-                float[] p2 = rampVal[2][(i >> 4)];
-                float d = 0.0f;
+                double a, bb, c2;
+                double[] p0 = rampVal[0][i & 0x3];
+                double[] p1 = rampVal[1][(i >> 2) & 0x3];
+                double[] p2 = rampVal[2][(i >> 4)];
+                double d = 0.0f;
                 // switch(n): fall-through case16..case1 == ACCUMULATE for N = n-1 .. 0
                 for (int N = n - 1; N >= 0; N--)
                 {
@@ -1310,15 +1327,15 @@ internal static class S3Tc
         }
         else // nColors == 3
         {
-            m = 2.0f * (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]) * (float)MAX_PIXEL_PER_BLOCK;
+            m = 2.0f * (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]) * (double)MAX_PIXEL_PER_BLOCK;
 
             for (i0 = -1, i = 0; i < 64; i++)
             {
-                float a, bb, c2;
-                float[] p0 = rampVal[0][i & 0x3];
-                float[] p1 = rampVal[1][(i >> 2) & 0x3];
-                float[] p2 = rampVal[2][(i >> 4)];
-                float d = 0.0f;
+                double a, bb, c2;
+                double[] p0 = rampVal[0][i & 0x3];
+                double[] p1 = rampVal[1][(i >> 2) & 0x3];
+                double[] p2 = rampVal[2][(i >> 4)];
+                double d = 0.0f;
                 for (int N = n - 1; N >= 0; N--)
                 {
                     a = p0[3 * N + 0] + p1[3 * N + 0] + p2[3 * N + 0];
@@ -1337,10 +1354,10 @@ internal static class S3Tc
 
         {
             int j0;
-            float[] p0 = ramp[0][i0 & 0x3];
-            float[] p1 = ramp[1][(i0 >> 2) & 0x3];
-            float[] p2 = ramp[2][(i0 >> 4)];
-            float a, bb, d;
+            double[] p0 = ramp[0][i0 & 0x3];
+            double[] p1 = ramp[1][(i0 >> 2) & 0x3];
+            double[] p2 = ramp[2][(i0 >> 4)];
+            double a, bb, d;
 
             for (i = 0; i < 3; i++)
             {
@@ -1418,12 +1435,12 @@ internal static class S3Tc
         }
     }
 
-    private static float allSame(ref int nColors, bool force4, int n, float[][] q, float[] weight,
+    private static double allSame(ref int nColors, bool force4, int n, double[][] q, double[] weight,
         int[][] endPointOut, int[] index)
     {
         EnsureGrid();
 
-        float[] colorError = new float[3];
+        double[] colorError = new double[3];
         int[,] channelValue = new int[3, 3];
         int i, j, k, l, m;
 
@@ -1431,7 +1448,7 @@ internal static class S3Tc
         {
             int delta;
             int[] cTopBot = new int[2];
-            float[] error = new float[2];
+            double[] error = new double[2];
 
             colorError[j] = 0;
             for (i = 0; i < 3; i++)
@@ -1442,7 +1459,7 @@ internal static class S3Tc
                 for (delta = 1, l = 0; l < 2; l++, delta = -delta)
                 {
                     if (_grid[k = c, i, j].valid == 0 ||
-                        (q[0][i] * 255.0f / weight[i] - (float)c) * (float)delta > 0)
+                        (q[0][i] * 255.0f / weight[i] - (double)c) * (double)delta > 0)
                     {
                         k = c + delta;
                         k = k < 0 ? 0 : (k < 256 ? k : 255);
@@ -1450,7 +1467,7 @@ internal static class S3Tc
                     }
                     for (error[l] = 0, m = 0; m < n; m++)
                     {
-                        float d = (float)k * weight[i] - q[m][i] * 255.0f;
+                        double d = (double)k * weight[i] - q[m][i] * 255.0f;
                         error[l] += d * d;
                     }
                     cTopBot[l] = k;
@@ -1504,11 +1521,11 @@ internal static class S3Tc
 
     // ---- mapAndRoundMult ----
     private static readonly int[,] _mapNumber = { { 2, 0, 0 }, { 6, 2, 0 } };
-    private static readonly float[,,,,] _mapCoeff = BuildMapCoeff();
+    private static readonly double[,,,,] _mapCoeff = BuildMapCoeff();
 
-    private static float[,,,,] BuildMapCoeff()
+    private static double[,,,,] BuildMapCoeff()
     {
-        var mc = new float[2, 2, 6, 2, 2];
+        var mc = new double[2, 2, 6, 2, 2];
         // [0] mappings to 3-color ramp, [0][0] two clusters
         mc[0, 0, 0, 0, 0] = 2.0f; mc[0, 0, 0, 0, 1] = -1.0f; mc[0, 0, 0, 1, 0] = 0.0f; mc[0, 0, 0, 1, 1] = 1.0f;
         mc[0, 0, 1, 0, 0] = 1.0f; mc[0, 0, 1, 0, 1] = 0.0f; mc[0, 0, 1, 1, 0] = -1.0f; mc[0, 0, 1, 1, 1] = 2.0f;
@@ -1525,12 +1542,12 @@ internal static class S3Tc
         return mc;
     }
 
-    private static float mapAndRoundMult(ref int nColors, bool bForce4, int levelLimit, int n,
-        float[][] q, float[] pMult, float[] weight, float[][] endPointIn, int[][] endPointOut,
+    private static double mapAndRoundMult(ref int nColors, bool bForce4, int levelLimit, int n,
+        double[][] q, double[] pMult, double[] weight, double[][] endPointIn, int[][] endPointOut,
         int[] index)
     {
-        float[][] colorInVar = NewJ(2, 3);
-        float[] e = new float[2];
+        double[][] colorInVar = NewJd(2, 3);
+        double[] e = new double[2];
         int[][][] endPointOutVar = { NewJi(2, 3), NewJi(2, 3) };
         int[] outLevVar = new int[2];
         int[][] indexVar = { new int[MAX_PIXEL_PER_BLOCK], new int[MAX_PIXEL_PER_BLOCK] };
@@ -1580,18 +1597,18 @@ internal static class S3Tc
     // =========================================================================
     private static void CodeRGBBlock(RGBBlock block)
     {
-        float[][] q = NewJ(MAX_PIXEL_PER_BLOCK, 3);
-        float[][] qC = NewJ(MAX_PIXEL_PER_BLOCK, 3);
-        float[] gC = new float[3];
-        float[][] qNoRep = NewJ(MAX_PIXEL_PER_BLOCK, 3);
-        float[][] qCNoRep = NewJ(MAX_PIXEL_PER_BLOCK, 3);
-        float[] pMult = new float[MAX_PIXEL_PER_BLOCK];
-        float[] weight = new float[3];
-        float[][] range = NewJ(2, 3);
-        float[] axis = new float[3];
-        float[] e = new float[2];
-        float[][][] endPointOut = { NewJ(2, 3), NewJ(2, 3) };
-        float nRec;
+        double[][] q = NewJd(MAX_PIXEL_PER_BLOCK, 3);
+        double[][] qC = NewJd(MAX_PIXEL_PER_BLOCK, 3);
+        double[] gC = new double[3];
+        double[][] qNoRep = NewJd(MAX_PIXEL_PER_BLOCK, 3);
+        double[][] qCNoRep = NewJd(MAX_PIXEL_PER_BLOCK, 3);
+        double[] pMult = new double[MAX_PIXEL_PER_BLOCK];
+        double[] weight = new double[3];
+        double[][] range = NewJd(2, 3);
+        double[] axis = new double[3];
+        double[] e = new double[2];
+        double[][][] endPointOut = { NewJd(2, 3), NewJd(2, 3) };
+        double nRec;
 
         int[] indexMult = new int[MAX_PIXEL_PER_BLOCK];
         int[] outIndexMult = new int[MAX_PIXEL_PER_BLOCK];
@@ -1619,7 +1636,7 @@ internal static class S3Tc
         if (n == 0)
             return;
 
-        nRec = 1 / (float)n;
+        nRec = 1 / (double)n;
 
         for (j = 0; j < 3; j++)
             weight[j] = (block.weight[j] < 0) ? 0.0f : block.weight[j];
@@ -1645,7 +1662,7 @@ internal static class S3Tc
 
         for (j = 0; j < 3; j++)
         {
-            for (gC[j] /= (float)n, i = 0; i < n; i++)
+            for (gC[j] /= (double)n, i = 0; i < n; i++)
                 qC[i][j] = q[i][j] - gC[j];
             range[0][j] = -gC[j];
             range[1][j] = weight[j] - gC[j];
