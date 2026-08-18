@@ -56,6 +56,13 @@ internal sealed class Bundler
     public bool Quiet;
     public bool SingleTexture;
 
+    // When an AlphaSource is merged into an A8R8G8B8 surface, bundler.exe takes
+    // the alpha from the loaded pixel's byte 3 (the X/alpha channel), which is
+    // zero for a 24-bit BMP that loaded as X8R8G8B8. skinbld.exe instead takes
+    // the blue channel (byte 0); the two shipped tools genuinely differ here, so
+    // the shared codec keeps bundler's behaviour by default and skinbld opts in.
+    public bool AlphaFromBlueChannel;
+
     private RdfReader _reader = null!;
 
     // Offsets-table bookkeeping (XPR1). Exposed so resource handlers can add the

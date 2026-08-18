@@ -45,6 +45,10 @@ internal sealed class XprBuilder(bool keepRdf, bool quiet)
             Bundler.XboxFormats.DmaChannel = Bundler.XboxFormats.D3DFORMAT_DMACHANNEL_A;
 
             var bundler = new Bundler.Bundler();
+            // skinbld.exe merges an AlphaSource from the blue channel (byte 0),
+            // unlike bundler.exe which uses the alpha/X channel (byte 3). Keep the
+            // skin's shipped byte-parity by opting into the blue-channel merge.
+            bundler.AlphaFromBlueChannel = true;
             bundler.Initialize([.. args]);
             bundler.Process();
 

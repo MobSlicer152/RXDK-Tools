@@ -13,7 +13,7 @@ Both tools build and run cross-platform (.NET 8, no Win32 dependencies).
 | `sk_res.h` | identical to the committed copy (only the embedded input path differs) |
 | Shared default skin | 5334 differing bytes of 2,066,512 (0.26%) |
 | `UIXKeyboard.uix` | 10 differing bytes of 2,519,286 |
-| Shipped `.rdf`/`.xpr` pairs | 370 of 439 byte-identical, 0 build failures |
+| Shipped `.rdf`/`.xpr` pairs | 375 of 439 byte-identical, 0 build failures |
 
 Everything except DXT **colour** halves now matches in both skins: object and
 property tables, all nine localised string tables, audio, the section directory,
@@ -114,10 +114,27 @@ with `Screen` hardcoded to `0x40001001`.
 `0x`, octal behind a leading zero, decimal otherwise (`{0x22b2}`, `{0400}`).
 Treating every token as an icon is what broke the keyboard skin's strings.
 
-**Alpha merge:** the original converts to A8R8G8B8 and merges alpha from the
-alpha image's **blue** channel at the *source* size, then resizes to a power of
-two. Alpha and colour must be brought to the larger of the two source
-dimensions before merging.
+**Alpha merge — the two tools disagree on which channel.** The merge loop copies
+one byte of the loaded `0xAARRGGBB` alpha pixel into the destination alpha, and
+`bundler.exe` and `skinbld.exe` pick a *different* byte:
+
+* `bundler.exe` takes **byte 3** (the X/alpha channel). A 24-bit BMP loads as
+  `X8R8G8B8` with byte 3 = 0, so **every 24-bit `AlphaSource` yields alpha 0** —
+  the alpha art is effectively ignored. Confirmed byte-exact against the shipped
+  sample `.xpr` files: `Input\Lightgun` merges to alpha 0 and now matches to the
+  byte, and `PlayField`, `PaintEffect`, `Fire`, `PolynomialTextureMaps`,
+  `Marketplace`, the three `loadsaveresource` bundles, `Gamepad` and `XPRViewer`
+  all collapse to nothing but their DXT/resample colour tail.
+* `skinbld.exe` takes **byte 0** (the **blue** channel), so the skin's grayscale
+  alpha art survives. This is why the shared skin matched all along.
+
+The leaked `basetexture.cpp` writes `dwAlpha = (*pAlphaBits) << 24`, i.e. blue —
+so the *leaked bundler source is skinbld's behaviour, not the shipped
+`bundler.exe`'s*. The two shipped binaries genuinely diverge here. The shared
+codec keeps bundler's byte-3 merge by default; `Rxdk.SkinBld.XprBuilder` opts
+into the blue-channel merge via `Bundler.AlphaFromBlueChannel = true`. Both
+paths still bring alpha and colour to the larger of the two source dimensions
+before merging, then resize to a power of two.
 
 **A same-size triangle Blt is not identity** — it is a 3-tap `[0.125, 0.75,
 0.125]` blur. The original avoids it because `BltSame`/`BltCopy` are tried
@@ -147,25 +164,38 @@ bundler use its default output paths while sweeping the sample tree.**
 
 ## Remaining work
 
-1. **Large bundler mismatches** — too big to be rounding tie-breaks, so likely a
-   real bug and the best next lead. Worst offenders by share of the file:
+1. **Large bundler mismatches — RESOLVED (was the byte-3-vs-blue alpha merge).**
+   Every one of the worst offenders was an `AlphaSource` texture whose alpha art
+   is a 24-bit BMP; `bundler.exe` merges byte 3 (→ alpha 0), we merged blue. See
+   the "Alpha merge" finding above. After the fix the sweep goes from **370 → 375
+   byte-identical** (five newly exact: `Input\Lightgun`, `Graphics\PointSprites`,
+   `Graphics\VolumeSprites`, and both `TechCert*\menuresource`) with **zero
+   regressions**, and the offenders collapse to their DXT/resample colour tail:
 
-   | Sample | Differing |
-   | --- | --- |
-   | `Graphics\PlayField\Resource.rdf` | 795219 of 6469632 (12.3%) |
-   | `Graphics\PolynomialTextureMaps` | 196526 of 2101248 (9.4%) |
-   | `Input\Lightgun` | 6958 of 186368 (3.7%) |
-   | `Graphics\Fire` | 236340 of 8740864 (2.7%) |
-   | `Networking\Marketplace` | 147480 of 6490112 (2.3%) |
-   | `Graphics\XPRViewer\textures.rdf` | 67310 of 4792320 (1.4%) |
-   | `Graphics\DynamicGamma` | 61451 of 7692288 (0.8%) |
-   | `Certification\TechCert*\loadsaveresource` | 30767 of 5474304 (0.6%) |
+   | Sample | Before | After |
+   | --- | --- | --- |
+   | `Graphics\PlayField\Resource.rdf` | 795219 | 3371 |
+   | `Graphics\Fire` | 236340 | 242 |
+   | `Graphics\PolynomialTextureMaps` | 196526 | 92 |
+   | `Networking\Marketplace` | 147480 | 59 |
+   | `Graphics\XPRViewer\textures.rdf` | 67310 | 1774 |
+   | `Graphics\DynamicGamma` | 61451 | 18472 |
+   | `Certification\TechCert*\loadsaveresource` (×3) | 30767 | 7 |
+   | `Input\Lightgun` | 6958 | **0** |
+   | `Input\Gamepad` | 9292 | 414 |
+   | `Graphics\PaintEffect` | 3291 | 11 |
 
-   Several counts repeat exactly across samples that share a `resource.rdf`
-   (`99` bytes for the Dolphin variants, PerPixelLighting and PersistDisplay;
-   `48` for DebugKeyboard, DebugMouse, AsyncWrite and SectionLoad), so a single
-   fix should clear whole groups at once. The three CJK fonts differ by only
-   46–79 bytes each. Full list in `reftest/bundler-sweep.txt`.
+   The residuals are now the item-2 colour tail (DXT endpoints) plus the
+   uncompressed-resample rounding tail (e.g. PlayField's remaining 3371 are 2919
+   RGB bytes in the alpha-less `Football` texture and 423 in the `Grass` DXT1
+   block, with no alpha bytes left). `DynamicGamma`'s 18472 is likewise spread
+   across all four channels of its `X8R8G8B8` textures — a pure resample tail, not
+   alpha. Full list in `reftest/bundler-sweep.txt`.
+
+   Still-open small groups untouched by this fix: the repeated `99` bytes across
+   the Dolphin variants / PerPixelLighting / PersistDisplay and `48` across
+   DebugKeyboard / DebugMouse / AsyncWrite / SectionLoad (one shared fix should
+   clear each group), and the three CJK fonts at 46–79 bytes each.
 2. **DXT colour-endpoint tie-breaks** — the long tail, including all 5334 bytes
    in the default skin. Endpoints differ by a single 6-bit step (e.g. green 34
    vs 36), and some blocks agree on endpoints but disagree on indices. Inputs to

@@ -262,12 +262,16 @@ internal abstract class BaseTexture
             var resizedAlpha = new CImage(width, height, alpha.Format);
             CImage.Blt(resizedAlpha, alpha, Filter, 0);
 
-            // basetexture.cpp merges with "dwAlpha = (*pAlphaBits) << 24", i.e. the
-            // alpha comes from the LOW byte of the 0xAARRGGBB pixel -- the blue
-            // channel -- not from the alpha source's own alpha channel, which is
-            // absent whenever the alpha art is a plain 24-bit bitmap.
+            // Merge the alpha channel. The two shipped tools disagree on which
+            // byte of the loaded 0xAARRGGBB alpha pixel becomes the destination
+            // alpha: bundler.exe uses byte 3 (the X/alpha channel), which is zero
+            // for a 24-bit BMP that loaded as X8R8G8B8, so every 24-bit AlphaSource
+            // yields alpha 0 -- confirmed byte-exact against the shipped sample
+            // .xpr files (Input\Lightgun matches to the byte). skinbld.exe instead
+            // takes the blue channel (byte 0); it opts in via AlphaFromBlueChannel.
+            int alphaByte = B.AlphaFromBlueChannel ? 0 : 3;
             for (long i = 0; i < (long)width * height; i++)
-                resizedColor.Data[i * 4 + 3] = resizedAlpha.Data[i * 4 + 0];
+                resizedColor.Data[i * 4 + 3] = resizedAlpha.Data[i * 4 + alphaByte];
         }
 
         return resizedColor;
