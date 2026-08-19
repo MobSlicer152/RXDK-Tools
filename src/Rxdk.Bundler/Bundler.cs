@@ -56,12 +56,14 @@ internal sealed class Bundler
     public bool Quiet;
     public bool SingleTexture;
 
-    // When an AlphaSource is merged into an A8R8G8B8 surface, bundler.exe takes
-    // the alpha from the loaded pixel's byte 3 (the X/alpha channel), which is
-    // zero for a 24-bit BMP that loaded as X8R8G8B8. skinbld.exe instead takes
-    // the blue channel (byte 0); the two shipped tools genuinely differ here, so
-    // the shared codec keeps bundler's behaviour by default and skinbld opts in.
-    public bool AlphaFromBlueChannel;
+    // An AlphaSource merged into an A8R8G8B8 surface takes its alpha from the
+    // loaded pixel's BLUE channel (byte 0) -- matching the leaked bundler.cpp
+    // (dwAlpha = (*pAlphaBits) << 24), the 5849 bundler.exe (verified: it merges
+    // real, non-zero alpha for Fire/PlayField/etc.), and skinbld.exe. An earlier
+    // change used byte 3 (the X channel, zero for a 24-bit BMP) to match some
+    // stale shipped .xpr, but that zeroed every alpha mask and made effects like
+    // Fire's flames render fully transparent. Blue is the correct, faithful merge.
+    public bool AlphaFromBlueChannel = true;
 
     // bundler.exe pins the x87 to _PC_24 (float precision); skinbld.exe runs at the
     // default 53-bit. Off = bundler's float-precision F2I; skinbld sets it on.
