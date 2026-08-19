@@ -80,19 +80,22 @@ internal static class XboxFormats
     public const uint X_D3DFMT_LIN_Q8W8V8U8 = 0x12;
 
     // --- Format packing constants (basetexture.h / shared d3d8.h) -------------
-    public const uint D3DFORMAT_DMACHANNEL_A = 0x00000001;
-    // Retail/XDK xgraphics EncodeFormat tags pre-baked resources with DMA channel B
-    // (verified byte-for-byte against the XDK's prebuilt .xpr golden files). This
-    // differs from RXDK-Libs' own header.cpp, which uses channel A; the packed-resource
-    // loader consumes the stored header verbatim, so we match the retail output.
-    public const uint D3DFORMAT_DMACHANNEL_B = 0x00000002;
+    public const uint D3DFORMAT_DMACHANNEL_A = 0x00000001;  // default for all system memory
+    public const uint D3DFORMAT_DMACHANNEL_B = 0x00000002;  // "unused" per d3d8.h
 
-    // Microsoft shipped .xpr files tagged both ways: the sample media the port was
-    // validated against uses channel B, while the 5849 bundler.exe binary emits
-    // channel A. The bit selects a pusher DMA context and is ignored by the
-    // packed-resource loader, so it only matters when reproducing a specific tool's
-    // bytes -- skinbld sets channel A to match the skins 5849 produces.
-    public static uint DmaChannel = D3DFORMAT_DMACHANNEL_B;
+    // The format word's DMA-channel bits are NOT ignored by the loader: the packed
+    // header is consumed verbatim into the D3DTexture, and the GPU DMA-fetches texels
+    // through the channel it names. Channel B ("unused") points at an unused pusher
+    // context, so every texture reads the wrong memory and renders as garbage -- this
+    // is exactly what corrupted the Marketplace scene (brown striped noise) until it
+    // was tracked down.
+    //
+    // Both 5849 tools emit channel A: bundler.exe and skinbld (XprBuilder forces A).
+    // With channel A our marketplacemedia.xpr is byte-identical to bundler.exe's and
+    // renders correctly. An earlier default of channel B had been chosen to match some
+    // stale prebuilt .xpr goldens, but -- like the byte-3 alpha regression -- those
+    // stale bytes were the wrong reference; the 5849 bundler.exe is the source of truth.
+    public static uint DmaChannel = D3DFORMAT_DMACHANNEL_A;
 
     public const uint D3DFORMAT_CUBEMAP = 0x00000004;
     public const uint D3DFORMAT_BORDERSOURCE_COLOR = 0x00000008;
