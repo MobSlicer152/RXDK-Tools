@@ -1,11 +1,20 @@
 # RXDK Tools
 
+<p align="center"><b>Recompiled Original Xbox XDK host tools for modern Windows, Linux, and macOS — imagebld, bundler, xactbld, xbcp, xbox-launch, the XBDM bridge, xbWatson, and Xbox Neighborhood</b></p>
+
 <p align="center">
+  <a href="https://github.com/Team-Resurgent/RXDK-Tools/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3"></a>
+  <a href="https://github.com/Team-Resurgent/RXDK-Tools/actions/workflows/build-rxdktools.yml"><img src="https://github.com/Team-Resurgent/RXDK-Tools/actions/workflows/build-rxdktools.yml/badge.svg" alt="Build"></a>
   <a href="https://discord.gg/VcdSfajQGK"><img src="https://img.shields.io/badge/chat-on%20discord-7289da.svg?logo=discord" alt="Discord"></a>
-  &nbsp;
+</p>
+
+<p align="center">
   <a href="https://ko-fi.com/J3J7L5UMN"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="ko-fi"></a>
-  &nbsp;
   <a href="https://www.patreon.com/teamresurgent"><img src="https://img.shields.io/badge/Patreon-F96854?style=for-the-badge&logo=patreon&logoColor=white" alt="Patreon"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Team-Resurgent/RXDK-Tools/releases/latest"><img src="https://img.shields.io/badge/download-latest-brightgreen.svg?style=for-the-badge&logo=github" alt="Download"></a>
 </p>
 
 **Recompiled Original Xbox XDK host tools for modern Windows, Linux, and macOS.**

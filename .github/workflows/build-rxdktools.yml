@@ -253,6 +253,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout (for the VERSION marker)
+        uses: actions/checkout@v4
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -263,6 +266,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/zips
+          # Publish the repo's VERSION marker as a release asset so consumers (the RXDK
+          # extension) can read the installed-tools version without cloning the repo.
+          if [[ -f VERSION ]]; then
+            cp VERSION dist/zips/VERSION
+          fi
           for artifact in dist/rxdk-managed-*; do
             if [[ -d "$artifact" ]]; then
               find "$artifact" -name '*.pdb' -delete
