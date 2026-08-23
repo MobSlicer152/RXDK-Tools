@@ -15,12 +15,11 @@ internal static class LibraryVersionChecker
 
     private static readonly VersionRange[] VersionRanges =
     {
-        new(3911, 3999, Expired: true),
-        new(4039, 4099),
-        new(4134, 4199),
-        new(4242, 4299),
-        new(4361, 65535),
-        new(4400, 0),
+        // RXDK: the retail XDK build bands (3911..4361) are all superseded. RXDK stamps
+        // its own build number 6800 (see xboxverp.h VER_PRODUCTBUILD), so the sole
+        // approved range is 6800..65535. The older retail ranges are dropped since no
+        // RXDK lib is ever stamped below 6800.
+        new(6800, 65535),
         new(0, 0),
     };
 
