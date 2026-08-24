@@ -109,30 +109,58 @@ internal sealed class ManagedSymbols
     }
 
     /// <summary>Expands one aggregate local (array elements or struct members) by name.</summary>
-    internal bool TryEmitMembers(string baseName, ref XbdmContext context, VariableJson variables, KitMemoryAccess memory)
+    internal bool TryEmitMembers(string expression, ref XbdmContext context, VariableJson variables, KitMemoryAccess memory)
     {
-        var frame = FindFrame(context.Eip);
-        var local = frame?.Locals.FirstOrDefault(l => l.Name == baseName);
-        if (local is not null)
+        // Synthetic children (container elements, aggregate members) carry an address+type reference
+        // "@<hexaddr>#<typeindex>" as their expand key -- self-contained, so heap nodes scattered by
+        // a list/tree re-expand without a field-path expression that can't name them.
+        if (TryParseAddrRef(expression, out var refAddr, out var refType))
         {
-            var address = (nuint)((long)context.Ebp + local.FrameOffset);
-            EmitChildren(local.TypeIndex, address, memory, variables);
+            EmitChildren(refType, refAddr, memory, variables);
             return variables.Count > 0;
         }
 
-        // No matching local: the name may be a global aggregate (struct/array) being expanded.
-        foreach (var global in _pdb.EnumerateGlobals())
-        {
-            if (global.IsPublic || global.Name != baseName)
-                continue;
-            if (!TryGlobalAddress(global, out var address))
-                continue;
+        // Otherwise the key is a source expression (a top-level variable, e.g. "g_AntiAliasModes"):
+        // resolve the base then walk any member/index/deref accessors to the target address+type.
+        if (!ExpressionPath.TryParse(expression, out var baseName, out var accessors))
+            return false;
+        if (!TryResolveBase(baseName, ref context, memory, out var address, out var typeIndex))
+            return false;
 
-            EmitChildren(global.TypeIndex, address, memory, variables);
-            return variables.Count > 0;
+        if (accessors.Count > 0)
+        {
+            var evaluator = new TypeEvaluator(_pdb.Types, a => memory.ReadDword((nuint)a));
+            if (!evaluator.TryWalk(address, typeIndex, accessors, out var finalAddress, out var finalType, out _))
+                return false;
+            address = (nuint)finalAddress;
+            typeIndex = finalType.TypeIndex;
         }
 
-        return false;
+        EmitChildren(typeIndex, address, memory, variables);
+        return variables.Count > 0;
+    }
+
+    private static string AddrRef(nuint address, uint typeIndex) => $"@{(ulong)address:x}#{typeIndex}";
+
+    private static bool TryParseAddrRef(string s, out nuint address, out uint typeIndex)
+    {
+        address = 0;
+        typeIndex = 0;
+        if (s.Length < 2 || s[0] != '@')
+            return false;
+        var hash = s.IndexOf('#');
+        if (hash < 2)
+            return false;
+        try
+        {
+            address = (nuint)Convert.ToUInt64(s.Substring(1, hash - 1), 16);
+            typeIndex = uint.Parse(s.Substring(hash + 1));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private bool TryGlobalAddress(GlobalSymbol global, out nuint address)
@@ -204,8 +232,23 @@ internal sealed class ManagedSymbols
             case PdbTypeKind.Struct:
             case PdbTypeKind.Class:
             case PdbTypeKind.Union:
+                if (TryFormatString(type, address, memory, out var sval))
+                {
+                    expandable = false;
+                    return sval;
+                }
+                if (TryContainerSummary(type, address, memory, out var csummary, out expandable))
+                    return csummary;
                 expandable = type.Members.Count > 0;
                 return type.Name is { Length: > 0 } tn ? tn : $"{{{type.ByteSize} bytes}}";
+
+            case PdbTypeKind.Enum:
+                expandable = false;
+                return FormatEnum(type, address, memory);
+
+            case PdbTypeKind.Pointer:
+                expandable = false;
+                return FormatPointer(type, address, memory);
 
             default:
                 expandable = false;
@@ -365,9 +408,266 @@ internal sealed class ManagedSymbols
         }
     }
 
+    // A type whose (peeled) name is the given std container, e.g. IsStdContainer(name, "vector") for
+    // "std::__N::vector<int, ...>". The "::" guard avoids matching a user type like my_vector<>.
+    private static bool IsStdContainer(string? name, string container) =>
+        name is not null && (name.Contains($"::{container}<", StringComparison.Ordinal) ||
+                             name.StartsWith($"{container}<", StringComparison.Ordinal));
+
+    // libc++ std::vector is [__begin_, __end_) of contiguous T. Reads those two pointers and the
+    // element type/size so both the summary (size) and the element rows can be produced. Returns
+    // false for anything that isn't a vector-shaped type, so callers fall back to raw members.
+    private bool TryVectorInfo(PdbType type, nuint address, KitMemoryAccess memory,
+        out uint begin, out uint count, out uint elemTypeIndex, out uint elemSize)
+    {
+        begin = count = elemTypeIndex = elemSize = 0;
+        type = _pdb.Types.Peel(type.TypeIndex);
+        if (!IsStdContainer(type.Name, "vector"))
+            return false;
+        if (!_pdb.Types.TryFindMember(type.TypeIndex, "__begin_", out var beginOff, out var beginTypeIdx) ||
+            !_pdb.Types.TryFindMember(type.TypeIndex, "__end_", out var endOff, out _))
+            return false;
+
+        var b = memory.ReadDword(address + (nuint)beginOff);
+        var e = memory.ReadDword(address + (nuint)endOff);
+        if (b is null || e is null)
+            return false;
+
+        var ptr = _pdb.Types.Peel(beginTypeIdx);
+        if (ptr.Kind != PdbTypeKind.Pointer)
+            return false;
+        // Element type: an LF_POINTER records its referent; a primitive pointer (e.g. int* as
+        // T_32PINT4) carries the base type in the low byte of its index (the pointer-mode bits clear).
+        elemTypeIndex = ptr.ReferentType != 0 ? ptr.ReferentType : (ptr.TypeIndex & 0xFF);
+        if (elemTypeIndex == 0)
+            return false;
+
+        elemSize = _pdb.Types.Resolve(elemTypeIndex).ByteSize is var s && s != 0 ? s : 1u;
+        begin = b.Value;
+        count = e.Value >= b.Value ? (e.Value - b.Value) / elemSize : 0;
+        return true;
+    }
+
+    // std::string (libc++ SSO). The first byte's low bit is __is_long_: short strings keep the text
+    // inline at offset 1; long strings hold a char* at offset 8. Renders the text quoted. (char only;
+    // wstring falls through to the raw view.)
+    private bool TryFormatString(PdbType type, nuint address, KitMemoryAccess memory, out string value)
+    {
+        value = string.Empty;
+        if (type.Name is null || !type.Name.Contains("basic_string<char,", StringComparison.Ordinal))
+            return false;
+        var b0 = memory.ReadDword(address);
+        if (b0 is null)
+            return false;
+        uint dataAddr;
+        if ((b0.Value & 1) != 0) // long: char* at __long.__data_ (offset 8)
+        {
+            var d = memory.ReadDword(address + 8);
+            if (d is null)
+                return false;
+            dataAddr = d.Value;
+        }
+        else // short: inline buffer at __short.__data_ (offset 1)
+        {
+            dataAddr = (uint)(address + 1);
+        }
+        value = ReadCString(dataAddr, 1, memory);
+        return true;
+    }
+
+    // A "{ size=N }" summary (and expandability) for a recognized container, so the row shows a count
+    // instead of the giant template type name. False for anything not a known container.
+    private bool TryContainerSummary(PdbType type, nuint address, KitMemoryAccess memory, out string summary, out bool expandable)
+    {
+        summary = string.Empty;
+        expandable = false;
+        type = _pdb.Types.Peel(type.TypeIndex);
+        uint count;
+        if (TryVectorInfo(type, address, memory, out _, out count, out _, out _))
+        {
+            // count already set by TryVectorInfo
+        }
+        else if (IsStdContainer(type.Name, "array") &&
+                 _pdb.Types.TryFindMember(type.TypeIndex, "__elems_", out _, out var arrTypeIdx))
+        {
+            count = _pdb.Types.Resolve(arrTypeIdx).ElementCount;
+        }
+        else if (IsStdContainer(type.Name, "list") &&
+                 _pdb.Types.TryFindMember(type.TypeIndex, "__size_", out var listSizeOff, out _))
+        {
+            count = memory.ReadDword(address + (nuint)listSizeOff) ?? 0;
+        }
+        else if ((IsStdContainer(type.Name, "set") || IsStdContainer(type.Name, "map")) &&
+                 _pdb.Types.TryFindMember(type.TypeIndex, "__tree_", out var treeOff, out var treeType) &&
+                 _pdb.Types.TryFindMember(treeType, "__size_", out var treeSizeOff, out _))
+        {
+            count = memory.ReadDword((nuint)(address + (nuint)treeOff + (nuint)treeSizeOff)) ?? 0;
+        }
+        else
+        {
+            return false;
+        }
+
+        summary = $"{{ size={count} }}";
+        expandable = count > 0;
+        return true;
+    }
+
+    // Emits one indexed element ("[i]") with a self-contained address+type expand key.
+    private void EmitElement(uint index, uint typeIndex, nuint address, KitMemoryAccess memory, VariableJson variables) =>
+        EmitValue($"[{index}]", typeIndex, address, memory, variables, expandBase: AddrRef(address, typeIndex));
+
+    // Emits a vector's elements as [i] rows. Returns true if the type was a vector (so raw members
+    // are suppressed), even when empty.
+    private bool TryEmitVector(PdbType type, nuint address, KitMemoryAccess memory, VariableJson variables)
+    {
+        if (!TryVectorInfo(type, address, memory, out var begin, out var count, out var elemTypeIndex, out var elemSize))
+            return false;
+        var shown = Math.Min(count, 1024u);
+        for (uint i = 0; i < shown && !variables.IsFull; i++)
+            EmitElement(i, elemTypeIndex, (nuint)(begin + i * elemSize), memory, variables);
+        return true;
+    }
+
+    // std::array<T,N> wraps a single T[N] member (__elems_). Show its elements directly as [i]
+    // rather than nesting them under __elems_.
+    private bool TryEmitArray(PdbType type, nuint address, KitMemoryAccess memory, VariableJson variables)
+    {
+        if (!IsStdContainer(type.Name, "array") ||
+            !_pdb.Types.TryFindMember(type.TypeIndex, "__elems_", out var elemsOff, out var elemsTypeIdx))
+            return false;
+        var arr = _pdb.Types.Resolve(elemsTypeIdx);
+        if (arr.Kind != PdbTypeKind.Array || arr.ElementCount == 0)
+            return false;
+        var elemSize = _pdb.Types.Resolve(arr.ReferentType).ByteSize is var s && s != 0 ? s : 1u;
+        var baseAddr = address + (nuint)elemsOff;
+        var count = Math.Min(arr.ElementCount, 1024u);
+        for (uint i = 0; i < count && !variables.IsFull; i++)
+            EmitElement(i, arr.ReferentType, baseAddr + (nuint)(i * elemSize), memory, variables);
+        return true;
+    }
+
+    // Resolves the value type a node-based container stores: via its node allocator's type name
+    // (allocator<NODE>), finds NODE, then NODE's __value_ member (its offset within a node + type).
+    private bool TryNodeValue(uint containerTypeIndex, out uint nodeTypeIndex, out uint valueOffset, out uint valueTypeIndex)
+    {
+        nodeTypeIndex = 0; valueOffset = 0; valueTypeIndex = 0;
+        uint allocType;
+        if (!_pdb.Types.TryFindMember(containerTypeIndex, "__node_alloc_", out _, out allocType) &&
+            !(_pdb.Types.TryFindMember(containerTypeIndex, "__tree_", out _, out var treeType) &&
+              _pdb.Types.TryFindMember(treeType, "__node_alloc_", out _, out allocType)))
+            return false;
+        var nodeName = ExtractAllocatorArg(_pdb.Types.Resolve(allocType).Name);
+        if (nodeName is null || !_pdb.Types.TryFindByName(nodeName, out var nodeType))
+            return false;
+        nodeTypeIndex = nodeType.TypeIndex;
+        return _pdb.Types.TryFindMember(nodeType.TypeIndex, "__value_", out valueOffset, out valueTypeIndex);
+    }
+
+    // "std::..::allocator<NODE >" -> "NODE" (angle-bracket balanced, trailing space trimmed).
+    private static string? ExtractAllocatorArg(string? name)
+    {
+        if (name is null) return null;
+        var i = name.IndexOf("allocator<", StringComparison.Ordinal);
+        if (i < 0) return null;
+        i += "allocator<".Length;
+        int depth = 1, start = i;
+        for (; i < name.Length && depth > 0; i++)
+        {
+            if (name[i] == '<') depth++;
+            else if (name[i] == '>') depth--;
+        }
+        return depth == 0 ? name.Substring(start, i - 1 - start).Trim() : null;
+    }
+
+    // std::list: a circular doubly-linked list with an embedded sentinel node __end_ whose __next_
+    // is the first element. Walks __next_ until back at the sentinel.
+    private bool TryEmitList(PdbType type, nuint address, KitMemoryAccess memory, VariableJson variables)
+    {
+        if (!IsStdContainer(type.Name, "list"))
+            return false;
+        if (!TryNodeValue(type.TypeIndex, out var nodeTypeIdx, out var valueOff, out var valueTypeIdx) ||
+            !_pdb.Types.TryFindMember(type.TypeIndex, "__end_", out var endOff, out _) ||
+            !_pdb.Types.TryFindMember(type.TypeIndex, "__size_", out var sizeOff, out _) ||
+            !_pdb.Types.TryFindMember(nodeTypeIdx, "__next_", out var nextOff, out _))
+            return false;
+
+        var size = memory.ReadDword(address + (nuint)sizeOff) ?? 0;
+        var sentinel = (uint)(address + (nuint)endOff);
+        var node = memory.ReadDword((nuint)(sentinel + (uint)nextOff));
+        for (uint i = 0; node is not null && node.Value != 0 && node.Value != sentinel && i < size && i < 4096 && !variables.IsFull; i++)
+        {
+            EmitElement(i, valueTypeIdx, (nuint)(node.Value + (uint)valueOff), memory, variables);
+            node = memory.ReadDword((nuint)(node.Value + (uint)nextOff));
+        }
+        return true;
+    }
+
+    // std::set / std::map: a red-black tree. In-order walk from __begin_node_ (leftmost) to the
+    // __end_node_ sentinel via left/right/parent links (libc++ __tree_next).
+    private bool TryEmitTree(PdbType type, nuint address, KitMemoryAccess memory, VariableJson variables)
+    {
+        if (!IsStdContainer(type.Name, "set") && !IsStdContainer(type.Name, "map"))
+            return false;
+        if (!_pdb.Types.TryFindMember(type.TypeIndex, "__tree_", out var treeOff, out var treeType) ||
+            !TryNodeValue(type.TypeIndex, out var nodeTypeIdx, out var valueOff, out var valueTypeIdx) ||
+            !_pdb.Types.TryFindMember(treeType, "__begin_node_", out var beginOff, out _) ||
+            !_pdb.Types.TryFindMember(treeType, "__end_node_", out var endNodeOff, out _) ||
+            !_pdb.Types.TryFindMember(treeType, "__size_", out var sizeOff, out _) ||
+            !_pdb.Types.TryFindMember(nodeTypeIdx, "__left_", out var leftOff, out _) ||
+            !_pdb.Types.TryFindMember(nodeTypeIdx, "__right_", out var rightOff, out _) ||
+            !_pdb.Types.TryFindMember(nodeTypeIdx, "__parent_", out var parentOff, out _))
+            return false;
+
+        var treeAddr = (uint)(address + (nuint)treeOff);
+        var endNode = treeAddr + (uint)endNodeOff; // &__end_node_ (the past-the-end sentinel)
+        var size = memory.ReadDword((nuint)(treeAddr + (uint)sizeOff)) ?? 0;
+        var node = memory.ReadDword((nuint)(treeAddr + (uint)beginOff)); // __begin_node_ (leftmost)
+        for (uint i = 0; node is not null && node.Value != 0 && node.Value != endNode && i < size && i < 4096 && !variables.IsFull; i++)
+        {
+            EmitElement(i, valueTypeIdx, (nuint)(node.Value + (uint)valueOff), memory, variables);
+            node = TreeNext(node.Value, endNode, (uint)leftOff, (uint)rightOff, (uint)parentOff, memory);
+        }
+        return true;
+    }
+
+    // The in-order successor of a red-black tree node (bounded to avoid a runaway on a corrupt tree).
+    private static uint? TreeNext(uint node, uint endNode, uint leftOff, uint rightOff, uint parentOff, KitMemoryAccess memory)
+    {
+        var right = memory.ReadDword((nuint)(node + rightOff)) ?? 0;
+        if (right != 0)
+        {
+            var n = right; // leftmost of the right subtree
+            for (var g = 0; g < 4096; g++)
+            {
+                var l = memory.ReadDword((nuint)(n + leftOff)) ?? 0;
+                if (l == 0) break;
+                n = l;
+            }
+            return n;
+        }
+        for (var g = 0; g < 4096; g++) // walk up until node is its parent's left child
+        {
+            var parent = memory.ReadDword((nuint)(node + parentOff)) ?? 0;
+            if (parent == 0 || parent == endNode)
+                return endNode;
+            if ((memory.ReadDword((nuint)(parent + leftOff)) ?? 0) == node)
+                return parent;
+            node = parent;
+        }
+        return endNode;
+    }
+
     private void EmitChildren(uint typeIndex, nuint address, KitMemoryAccess memory, VariableJson variables)
     {
         var type = _pdb.Types.Resolve(typeIndex);
+
+        // Recognized standard containers show their elements instead of internal pointers/nodes.
+        if (TryEmitVector(type, address, memory, variables) ||
+            TryEmitArray(type, address, memory, variables) ||
+            TryEmitList(type, address, memory, variables) ||
+            TryEmitTree(type, address, memory, variables))
+            return;
 
         if (type.Kind == PdbTypeKind.Array && type.ElementCount > 0)
         {
@@ -375,7 +675,7 @@ internal sealed class ManagedSymbols
             var elemSize = elem.ByteSize == 0 ? 4u : elem.ByteSize;
             var count = Math.Min(type.ElementCount, 256u);
             for (var i = 0u; i < count && !variables.IsFull; i++)
-                EmitValue($"[{i}]", type.ReferentType, address + (nuint)(i * elemSize), memory, variables, expandBase: $"[{i}]");
+                EmitElement(i, type.ReferentType, address + (nuint)(i * elemSize), memory, variables);
             return;
         }
 
@@ -385,9 +685,89 @@ internal sealed class ManagedSymbols
             {
                 if (variables.IsFull)
                     break;
-                EmitValue(member.Name, member.TypeIndex, address + (nuint)member.Offset, memory, variables, expandBase: member.Name);
+                // A nameless member is a base class (recorded so member lookup recurses into it);
+                // flatten its members into the derived view instead of showing a blank row.
+                if (string.IsNullOrEmpty(member.Name))
+                {
+                    EmitChildren(member.TypeIndex, address + (nuint)member.Offset, memory, variables);
+                    continue;
+                }
+                var memberAddr = address + (nuint)member.Offset;
+                EmitValue(member.Name, member.TypeIndex, memberAddr, memory, variables,
+                    expandBase: AddrRef(memberAddr, member.TypeIndex));
             }
         }
+    }
+
+    // An enum value shown by name (falling back to the number when no enumerator matches).
+    private string FormatEnum(PdbType type, nuint address, KitMemoryAccess memory)
+    {
+        var raw = memory.ReadDword(address);
+        if (raw is null)
+            return "<unreadable>";
+        var v = type.ByteSize switch { 1 => raw.Value & 0xFF, 2 => raw.Value & 0xFFFF, _ => raw.Value };
+        foreach (var e in type.Members)
+            if (unchecked((uint)e.Offset) == v)
+                return $"{e.Name} ({(int)v})";
+        return $"{(int)v} (0x{v:x})";
+    }
+
+    // A pointer: the address, plus the pointed-to text when it's a char*/wchar_t* string.
+    private string FormatPointer(PdbType type, nuint address, KitMemoryAccess memory)
+    {
+        var ptr = memory.ReadDword(address);
+        if (ptr is null)
+            return "<unreadable>";
+        var value = ptr.Value;
+        var width = PointerCharWidth(type);
+        if (value != 0 && width != 0)
+            return $"0x{value:x8} {ReadCString(value, width, memory)}";
+        return $"0x{value:x8}";
+    }
+
+    // 1 for char*/signed/unsigned char*, 2 for wchar_t*, 0 for any other pointer. Handles both the
+    // LF_POINTER form (referent type set) and the primitive-pointer form (base type in the low byte).
+    private int PointerCharWidth(PdbType pointerType)
+    {
+        if (pointerType.ReferentType != 0)
+        {
+            var referent = _pdb.Types.Peel(pointerType.ReferentType);
+            if (referent.Kind == PdbTypeKind.Primitive &&
+                referent.Name is "char" or "signed char" or "unsigned char" or "wchar_t")
+                return (int)referent.ByteSize;
+            return 0;
+        }
+        return (pointerType.TypeIndex & 0xFF) switch
+        {
+            0x10 or 0x20 or 0x70 => 1, // signed/unsigned/plain char
+            0x71 => 2,                 // wchar_t
+            _ => 0,
+        };
+    }
+
+    // Reads a NUL-terminated string (charSize 1 or 2) from kit memory and returns it quoted, with
+    // control characters shown as C escapes. Bounded so a bad/unterminated pointer can't run away.
+    private static string ReadCString(uint address, int charSize, KitMemoryAccess memory)
+    {
+        const int maxChars = 512;
+        var sb = new System.Text.StringBuilder("\"");
+        for (var i = 0; i < maxChars; i++)
+        {
+            var dw = memory.ReadDword((nuint)(address + (uint)(i * charSize)));
+            if (dw is null) { sb.Append('…'); break; }
+            var ch = charSize == 1 ? (int)(dw.Value & 0xFF) : (int)(dw.Value & 0xFFFF);
+            if (ch == 0) break;
+            switch (ch)
+            {
+                case '\n': sb.Append("\\n"); break;
+                case '\r': sb.Append("\\r"); break;
+                case '\t': sb.Append("\\t"); break;
+                default: sb.Append(ch >= 32 ? (char)ch : '.'); break;
+            }
+            if (i == maxChars - 1) sb.Append('…');
+        }
+        sb.Append('"');
+        return sb.ToString();
     }
 
     private static string FormatScalar(PdbType type, nuint address, KitMemoryAccess memory)

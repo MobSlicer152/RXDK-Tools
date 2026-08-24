@@ -229,11 +229,16 @@ public sealed class TypeSystem
                 _ = r.ReadUInt16(); // count
                 var property = r.ReadUInt16();
                 var utype = r.ReadUInt32();
-                _ = r.ReadUInt32(); // field list
+                var fieldList = r.ReadUInt32();
                 var name = r.ReadCString();
                 if ((property & PropForwardRef) != 0 && TryRedirect(name, out var def))
                     return Resolve(def);
                 var inner = Resolve(utype);
+                // Capture the enumerators (name + value, value stored in PdbMember.Offset) so a value
+                // can be shown by name; enums aren't aggregates, so these are never emitted as children.
+                var enumerators = new List<PdbMember>();
+                if (fieldList != 0 && _tpi.IsRecordIndex(fieldList))
+                    ParseFieldList(fieldList, enumerators, new HashSet<uint>());
                 return new PdbType
                 {
                     TypeIndex = typeIndex,
@@ -241,6 +246,7 @@ public sealed class TypeSystem
                     ByteSize = inner.ByteSize == 0 ? 4 : inner.ByteSize,
                     Name = string.IsNullOrEmpty(name) ? null : name,
                     ReferentType = utype,
+                    Members = enumerators,
                 };
             }
 
@@ -365,10 +371,13 @@ public sealed class TypeSystem
                     break;
 
                 case TypeLeaf.Enumerate:
+                {
                     _ = r.ReadUInt16();          // attr
-                    _ = r.ReadNumericLeaf();     // value
-                    _ = r.ReadCString();
+                    var evalue = r.ReadNumericLeaf(); // enumerator value
+                    var ename = r.ReadCString();
+                    into.Add(new PdbMember(ename, evalue, 0)); // value carried in Offset
                     break;
+                }
 
                 default:
                     return; // unknown sub-record: stop rather than misparse
