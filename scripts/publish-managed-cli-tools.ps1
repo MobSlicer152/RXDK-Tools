@@ -24,6 +24,10 @@ $cliTools = @(
     @{ Project = "Rxdk.Xsasm\Rxdk.Xsasm.csproj"; Name = "xsasm" },
     @{ Project = "Rxdk.XboxLaunch.Cli\Rxdk.XboxLaunch.Cli.csproj"; Name = "xbox-launch" },
     @{ Project = "Rxdk.XboxDbgBridge.Cli\Rxdk.XboxDbgBridge.Cli.csproj"; Name = "xboxdbg-bridge" },
+    # The shared build engine + debug adapter (moved here from RXDK-VS20XX). Both IDEs consume these
+    # from the tools bundle: Rxdk.Cli builds/links/packs a title; Rxdk.Dap is the debug adapter.
+    @{ Project = "Rxdk.Cli\Rxdk.Cli.csproj"; Name = "Rxdk.Cli" },
+    @{ Project = "Rxdk.Dap\Rxdk.Dap.csproj"; Name = "Rxdk.Dap" },
     @{ Project = "Rxdk.XbWatson\Rxdk.XbWatson.csproj"; Name = "xbwatson" },
     # Avalonia GUI app, same single-file publish shape as xbwatson (SingleFilePublish.props
     # embeds the Avalonia native libs), so it ships as one flat exe in tools/ too.
