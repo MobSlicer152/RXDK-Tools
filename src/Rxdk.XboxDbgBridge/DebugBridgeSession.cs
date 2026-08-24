@@ -552,27 +552,43 @@ internal sealed partial class DebugBridgeSession : IDisposable
         EnsureStartupStopOnRelaxed();
         if (_holdForBreakpointSetup)
         {
-            var threadId = _stoppedThread != 0 ? _stoppedThread : _mainThread;
-            BridgeWriter.Log($"go: releasing entry hold thread={threadId} pc=0x{_stoppedAddress:x}");
+            var holdThread = _stoppedThread != 0 ? _stoppedThread : _mainThread;
+            BridgeWriter.Log($"go: releasing entry hold thread={holdThread} pc=0x{_stoppedAddress:x}");
         }
 
-        if (AnyThreadStopped())
-            SyncStoppedStateFromKit();
-
-        // Resume-from-breakpoint MUST go through ContinueThread(exception:true): when a BREAK ADDR
-        // breakpoint hits, XBDM restores the original byte and only a ContinueThread step-over
-        // re-inserts the INT3. IsStoppedAtSoftwareBreakpoint() queries the kit (ISBREAK) and can race
-        // the async break notification, so also honor our own in-process breakpoint records
-        // (StoppedAtActiveBreakpoint) — otherwise a plain continue bare-resumes, the breakpoint is
-        // never re-armed, and the title runs free (never re-hitting).
-        if (IsStoppedAtSoftwareBreakpoint() || StoppedAtActiveBreakpoint())
-            ResumeStoppedThread(exception: true);
-        else
-            ResumeAllStoppedThreads();
+        // Mirror the reference debugger (RXDKNeighborhood): a continue-from-stop is just
+        // "continue thread=<tid>" then "go", UNCONDITIONALLY. A "go" command only arrives when the
+        // title is stopped, so always ContinueThread the stopped thread — never gate it on in-process
+        // flags or kit queries. Those (_threadStopped / IsStoppedAtSoftwareBreakpoint / IsThreadStoppedOnKit)
+        // race the async break notification (the notification thread's writes aren't reliably visible to
+        // this command thread), so gating let a continue skip ContinueThread — leaving XBDM's removed
+        // INT3 un-reinserted — and the title wedged/ran free after a few continues.
+        var wasHold = _holdForBreakpointSetup;
+        var threadId = _stoppedThread != 0 ? _stoppedThread : _mainThread;
+        if (threadId != 0)
+        {
+            var exception = _autoRunResume || ShouldContinueAsException(threadId) || StoppedAtActiveBreakpoint();
+            _threadStopped = false;
+            _launchStopped = false;
+            try
+            {
+                _debug!.ContinueThread(threadId, exception);
+                BridgeWriter.Log($"go: ContinueThread({threadId}, exception={exception})");
+            }
+            catch (XbdmException ex)
+            {
+                BridgeWriter.Log($"go: ContinueThread({threadId}) failed: {ex.Message}");
+            }
+        }
 
         BypassStoppedHardwareBreakpoint();
         TryGo("go");
-        ResumeMainThreadSuspend("go");
+        // ResumeMainThreadSuspend releases the bridge's own startup HoldMainThreadIfRunning suspend.
+        // Only do it while releasing that entry hold — on a normal breakpoint continue ContinueThread
+        // already resumed the thread, and an unconditional decrement here is exactly the bare-resume
+        // that ran the title past an un-reinserted breakpoint.
+        if (wasHold)
+            ResumeMainThreadSuspend("go");
         _holdForBreakpointSetup = false;
         BridgeWriter.EmitResult(id, true);
     }
