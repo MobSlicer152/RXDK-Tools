@@ -559,7 +559,13 @@ internal sealed partial class DebugBridgeSession : IDisposable
         if (AnyThreadStopped())
             SyncStoppedStateFromKit();
 
-        if (IsStoppedAtSoftwareBreakpoint())
+        // Resume-from-breakpoint MUST go through ContinueThread(exception:true): when a BREAK ADDR
+        // breakpoint hits, XBDM restores the original byte and only a ContinueThread step-over
+        // re-inserts the INT3. IsStoppedAtSoftwareBreakpoint() queries the kit (ISBREAK) and can race
+        // the async break notification, so also honor our own in-process breakpoint records
+        // (StoppedAtActiveBreakpoint) — otherwise a plain continue bare-resumes, the breakpoint is
+        // never re-armed, and the title runs free (never re-hitting).
+        if (IsStoppedAtSoftwareBreakpoint() || StoppedAtActiveBreakpoint())
             ResumeStoppedThread(exception: true);
         else
             ResumeAllStoppedThreads();
@@ -1280,8 +1286,10 @@ internal sealed partial class DebugBridgeSession : IDisposable
         if (threadId == 0)
             return;
 
+        // StoppedAtActiveBreakpoint() consults our in-process breakpoint records, so a kit-query race
+        // (IsThreadStoppedOnKit) can't make us skip the ContinueThread that re-arms the breakpoint.
         var needContinue = _threadStopped || _launchStopped || _holdForBreakpointSetup ||
-                           IsThreadStoppedOnKit(threadId);
+                           IsThreadStoppedOnKit(threadId) || StoppedAtActiveBreakpoint();
         if (!needContinue)
         {
             BridgeWriter.Log($"ResumeStoppedThread({threadId}): not stopped (hold={_holdForBreakpointSetup})");
