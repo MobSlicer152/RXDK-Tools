@@ -12,7 +12,9 @@ namespace Rxdk.Pdb.Symbols;
 public sealed class SymbolReader
 {
     private const int CodeViewSignatureC13 = 4;
+    private const ushort CvRegEsp = 21; // x86 ESP
     private const ushort CvRegEbp = 22; // x86 EBP
+    private const ushort CvAllRegVFrame = 0x7536; // CV_ALLREG_VFRAME (the realigned virtual frame base)
     private const ushort LocalFlagIsParameter = 0x0001;
     private const ushort LocalFlagCompilerGenerated = 0x0004;
 
@@ -141,6 +143,9 @@ public sealed class SymbolReader
         string? pendingName = null;
         uint pendingType = 0;
         bool pendingIsParam = false;
+        uint calleeSavedBytes = 0;
+        var localBase = FrameBase.Ebp;
+        var paramBase = FrameBase.Ebp;
 
         while (r.Remaining >= 4)
         {
@@ -167,6 +172,9 @@ public sealed class SymbolReader
                         locals = new List<LocalVariable>();
                         pendingName = null;
                         inlineDepth = 0;
+                        calleeSavedBytes = 0;
+                        localBase = FrameBase.Ebp;
+                        paramBase = FrameBase.Ebp;
                     }
                     else
                     {
@@ -180,6 +188,25 @@ public sealed class SymbolReader
                     if (depth > 0)
                         depth++;
                     break;
+
+                case SymbolKind.FrameProc when depth == 1:
+                {
+                    // FrameProcSym: totalFrame, padding, offPad, cbCalleeSaved, offExHdlr(u32),
+                    // secExHdlr(u16), flags(u32). We need cbCalleeSaved (to rebuild VFRAME from
+                    // EBP) and the encoded local/param base-pointer registers from flags.
+                    _ = r.ReadUInt32();                 // total frame bytes
+                    _ = r.ReadUInt32();                 // padding bytes
+                    _ = r.ReadUInt32();                 // offset to padding
+                    calleeSavedBytes = r.ReadUInt32();  // bytes of callee-saved registers
+                    _ = r.ReadUInt32();                 // exception-handler offset
+                    _ = r.ReadUInt16();                 // exception-handler section
+                    var frameFlags = r.ReadUInt32();
+                    // bits 14-15 = encoded local base ptr, 16-17 = encoded param base ptr.
+                    // x86 encoding: 1=ESP, 2=EBP, 3=VFRAME (the realigned virtual frame base).
+                    localBase = DecodeFrameBase((frameFlags >> 14) & 0x3);
+                    paramBase = DecodeFrameBase((frameFlags >> 16) & 0x3);
+                    break;
+                }
 
                 case SymbolKind.InlineSite:
                     if (depth > 0)
@@ -205,6 +232,7 @@ public sealed class SymbolReader
                                 FunctionRva = funcRva,
                                 CodeSize = codeSize,
                                 Locals = locals,
+                                CalleeSavedBytes = calleeSavedBytes,
                             };
                         }
                     }
@@ -233,9 +261,23 @@ public sealed class SymbolReader
                 case SymbolKind.DefRangeFramePointerRel when depth > 0 && inlineDepth == 0 && pendingName is not null:
                 case SymbolKind.DefRangeFramePointerRelFullScope when depth > 0 && inlineDepth == 0 && pendingName is not null:
                 {
-                    var offset = r.ReadInt32(); // frame-pointer-relative offset
-                    locals.Add(new LocalVariable(pendingName, pendingType, offset, pendingIsParam));
+                    var offset = r.ReadInt32(); // offset from the frame's local/param base register
+                    var baseReg = pendingIsParam ? paramBase : localBase;
+                    locals.Add(new LocalVariable(pendingName, pendingType, offset, pendingIsParam, baseReg));
                     pendingName = null; // first range fixes the location
+                    break;
+                }
+
+                case SymbolKind.DefRangeRegisterRel when depth > 0 && inlineDepth == 0 && pendingName is not null:
+                {
+                    // DefRangeRegisterRel: baseReg(u16), flags(u16), basePointerOffset(i32), range...
+                    // Clang emits this for `this` and other locals homed relative to a register
+                    // (commonly VFRAME) that S_DEFRANGE_FRAMEPOINTER_REL can't name.
+                    var reg = r.ReadUInt16();
+                    _ = r.ReadUInt16(); // flags (spilledUdtMember / offsetParent) -- unused
+                    var offset = r.ReadInt32();
+                    locals.Add(new LocalVariable(pendingName, pendingType, offset, pendingIsParam, DecodeRegister(reg)));
+                    pendingName = null;
                     break;
                 }
 
@@ -279,6 +321,24 @@ public sealed class SymbolReader
         var name = r.ReadCString();
         return new ProcRecord(name, codeSize, codeOffset, segment);
     }
+
+    // S_FRAMEPROC encoded base-pointer register (x86): 1=ESP, 2=EBP, 3=VFRAME; 0=none (default EBP).
+    private static FrameBase DecodeFrameBase(uint encoded) => encoded switch
+    {
+        1 => FrameBase.Esp,
+        2 => FrameBase.Ebp,
+        3 => FrameBase.VFrame,
+        _ => FrameBase.Ebp,
+    };
+
+    // A concrete CV register id (from S_DEFRANGE_REGISTER_REL) mapped to a frame base.
+    private static FrameBase DecodeRegister(ushort reg) => reg switch
+    {
+        CvRegEsp => FrameBase.Esp,
+        CvRegEbp => FrameBase.Ebp,
+        CvAllRegVFrame => FrameBase.VFrame,
+        _ => FrameBase.Ebp,
+    };
 
     private readonly record struct ProcRecord(string Name, uint CodeSize, uint CodeOffset, ushort Segment);
 }

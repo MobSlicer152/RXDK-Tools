@@ -344,10 +344,16 @@ public sealed class TypeSystem
                 }
 
                 case TypeLeaf.BClass:
+                {
+                    // A (non-virtual) base class. Record it as a nameless member at its offset so
+                    // member lookup recurses into it (TryFindMemberCore treats empty-name members
+                    // as base classes) -- e.g. an inherited m_pd3dDevice resolves through `this`.
                     _ = r.ReadUInt16();          // attr
-                    _ = r.ReadUInt32();          // base type
-                    _ = r.ReadNumericLeaf();     // offset
+                    var baseType = r.ReadUInt32();
+                    var baseOffset = r.ReadNumericLeaf();
+                    into.Add(new PdbMember(string.Empty, baseOffset, baseType));
                     break;
+                }
 
                 case TypeLeaf.VBClass:
                 case TypeLeaf.IVBClass:

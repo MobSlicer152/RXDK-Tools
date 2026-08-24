@@ -38,7 +38,7 @@ internal sealed class ManagedSymbols
             if (IsHidden(local.Name) || variables.WasEmitted(local.Name))
                 continue;
 
-            var address = (nuint)((long)context.Ebp + local.FrameOffset);
+            var address = ResolveLocalAddress(frame, local, ref context);
             EmitValue(local.Name, local.TypeIndex, address, memory, variables, expandBase: local.Name);
             emitted = true;
         }
@@ -237,7 +237,7 @@ internal sealed class ManagedSymbols
             return true;
         }
 
-        if (!TryResolveBase(baseName, ref context, out var address, out var typeIndex))
+        if (!TryResolveBase(baseName, ref context, memory, out var address, out var typeIndex))
         {
             error = "symbolNotFound";
             return false;
@@ -254,8 +254,63 @@ internal sealed class ManagedSymbols
         return true;
     }
 
-    /// <summary>Resolves a base symbol name to its address and type: a frame local first, then a global.</summary>
-    private bool TryResolveBase(string name, ref XbdmContext context, out nuint address, out uint typeIndex)
+    /// <summary>
+    /// Computes a local's live address from the frame register its offset is measured against.
+    /// EBP-relative is the common -O0 case; VFRAME is the realigned virtual frame base a function
+    /// with 16-byte-aligned locals uses (VFRAME = (EBP - callee-saved bytes) &amp; ~0xF, matching the
+    /// prologue's `and esp,-0x10` after pushing the saved regs); ESP-relative appears in
+    /// frame-pointer-omitted functions.
+    /// </summary>
+    private static nuint ResolveLocalAddress(FrameInfo frame, LocalVariable local, ref XbdmContext context)
+    {
+        long baseValue = local.Base switch
+        {
+            FrameBase.Esp => context.Esp,
+            FrameBase.VFrame => ((long)context.Ebp - frame.CalleeSavedBytes) & ~0xFL,
+            _ => context.Ebp,
+        };
+        return (nuint)(baseValue + local.FrameOffset);
+    }
+
+    /// <summary>
+    /// Resolves a bare name as a member of the current method's <c>this</c> object (including
+    /// inherited members). Reads the live <c>this</c> pointer from its frame slot, then walks the
+    /// pointed-to class for <paramref name="name"/>. Returns the member's absolute address + type.
+    /// </summary>
+    private bool TryResolveThisMember(
+        string name, FrameInfo frame, ref XbdmContext context, KitMemoryAccess memory,
+        out nuint address, out uint typeIndex)
+    {
+        address = 0;
+        typeIndex = 0;
+
+        var thisLocal = frame.Locals.FirstOrDefault(l => string.Equals(l.Name, "this", StringComparison.Ordinal));
+        if (thisLocal is null)
+            return false;
+
+        var thisPtr = memory.ReadDword(ResolveLocalAddress(frame, thisLocal, ref context));
+        if (thisPtr is null or 0)
+            return false;
+
+        var pointerType = _pdb.Types.Peel(thisLocal.TypeIndex);
+        if (pointerType.Kind != PdbTypeKind.Pointer || pointerType.ReferentType == 0)
+            return false;
+
+        if (!_pdb.Types.TryFindMember(pointerType.ReferentType, name, out var offset, out var memberType))
+            return false;
+
+        address = (nuint)(thisPtr.Value + offset);
+        typeIndex = memberType;
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves a base symbol name to its address and type: a frame local first, then an implicit
+    /// member of the enclosing object (<c>this-&gt;name</c>, including inherited members), then a
+    /// global. The implicit-<c>this</c> step is what lets bare member names -- the form the Autos
+    /// window and natural watch expressions use -- resolve inside a method.
+    /// </summary>
+    private bool TryResolveBase(string name, ref XbdmContext context, KitMemoryAccess memory, out nuint address, out uint typeIndex)
     {
         address = 0;
         typeIndex = 0;
@@ -267,10 +322,13 @@ internal sealed class ManagedSymbols
                         ?? frame.Locals.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
             if (local is not null)
             {
-                address = (nuint)((long)context.Ebp + local.FrameOffset);
+                address = ResolveLocalAddress(frame, local, ref context);
                 typeIndex = local.TypeIndex;
                 return true;
             }
+
+            if (TryResolveThisMember(name, frame, ref context, memory, out address, out typeIndex))
+                return true;
         }
 
         foreach (var global in _pdb.EnumerateGlobals())

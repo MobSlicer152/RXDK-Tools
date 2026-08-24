@@ -15,6 +15,7 @@ internal enum SymbolKind : ushort
     RegRel32 = 0x1111,
     Local = 0x113E,
     DefRangeFramePointerRel = 0x1142,
+    DefRangeRegisterRel = 0x1145,
     DefRangeFramePointerRelFullScope = 0x1144,
     LProc32Id = 0x1146,
     GProc32Id = 0x1147,
