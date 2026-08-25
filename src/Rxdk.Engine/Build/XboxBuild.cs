@@ -293,7 +293,12 @@ public static class XboxBuild
         }
         else
         {
-            rdfs.AddRange(Directory.EnumerateFiles(projectRoot, "*.rdf", SearchOption.AllDirectories));
+            rdfs.AddRange(Directory.EnumerateFiles(projectRoot, "*.rdf", new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                IgnoreInaccessible = true,
+                AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System,
+            }));
         }
 
         if (rdfs.Count > 0)
@@ -346,13 +351,16 @@ public static class XboxBuild
             if (File.Exists(p)) xaps.Add(p);
         }
 
-        // Auto-discover: project tree (recursive) + the sample root one level up (non-recursive).
-        foreach (var f in Directory.EnumerateFiles(projectRoot, "*.xap", SearchOption.AllDirectories))
+        // Auto-discover under the PROJECT ROOT only (skip symlinks/junctions + inaccessible entries;
+        // do not scan the parent -- see the shader discovery note in CompileShadersAsync).
+        var xapOpts = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+            AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System,
+        };
+        foreach (var f in Directory.EnumerateFiles(projectRoot, "*.xap", xapOpts))
             xaps.Add(Path.GetFullPath(f));
-        var parent = Path.GetDirectoryName(projectRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        if (parent is not null && Directory.Exists(parent))
-            foreach (var f in Directory.EnumerateFiles(parent, "*.xap", SearchOption.TopDirectoryOnly))
-                xaps.Add(Path.GetFullPath(f));
 
         var unique = xaps.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (unique.Count == 0)
@@ -399,23 +407,24 @@ public static class XboxBuild
             if (File.Exists(p)) shaders.Add(p);
         }
 
-        // Auto-discover if none listed: every *.vsh / *.psh under the project, plus the sample
-        // root one level up — XDK samples keep their shader sources in Media\Shaders beside the
-        // .vcxproj directory rather than inside it, and the title loads the assembled .xvu from
-        // that same media tree. Build-output trees (out/, obj/, bin/) are excluded so deployed
-        // copies are not recompiled.
+        // Auto-discover if none listed: every *.vsh / *.psh under the PROJECT ROOT (each project keeps
+        // its shaders in its own Media\Shaders). Do NOT scan the parent directory: a project placed
+        // directly under a busy folder (e.g. a repo root full of sibling checkouts) would otherwise walk
+        // every sibling -- pulling in unrelated shaders and choking on their broken symlinks/junctions.
+        // Skip reparse points so a symlink/junction can't redirect the walk or throw, and skip
+        // build-output trees (out/, obj/, bin/) so deployed copies are not recompiled.
         if (shaders.Count == 0)
         {
-            var roots = new List<string> { projectRoot };
-            var sampleRoot = Path.GetDirectoryName(
-                projectRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            if (sampleRoot is not null && Directory.Exists(sampleRoot)) roots.Add(sampleRoot);
-
-            foreach (var root in roots)
-                foreach (var pat in new[] { "*.vsh", "*.psh" })
-                    foreach (var f in Directory.EnumerateFiles(root, pat, SearchOption.AllDirectories))
-                        if (!IsBuildOutputPath(f, root))
-                            shaders.Add(Path.GetFullPath(f));
+            var opts = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                IgnoreInaccessible = true,
+                AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System,
+            };
+            foreach (var pat in new[] { "*.vsh", "*.psh" })
+                foreach (var f in Directory.EnumerateFiles(projectRoot, pat, opts))
+                    if (!IsBuildOutputPath(f, projectRoot))
+                        shaders.Add(Path.GetFullPath(f));
         }
 
         var unique = shaders
