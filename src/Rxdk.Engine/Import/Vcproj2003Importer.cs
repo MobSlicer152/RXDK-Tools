@@ -406,8 +406,17 @@ public static class Vcproj2003Importer
         var sources = new List<(string include, string tag, string? filter)>();
         if (!copySources)
         {
+            var anyAbsolute = false;
             foreach (var (abs, tag, filter) in raw)
-                sources.Add((MakeRelative(outDir, abs), tag, filter));
+            {
+                var include = MakeRelative(outDir, abs);
+                if (Path.IsPathFullyQualified(include)) anyAbsolute = true;
+                sources.Add((include, tag, filter));
+            }
+            if (anyAbsolute)
+                result.Warnings.Add("some sources live outside the output folder and were referenced by " +
+                    "ABSOLUTE path, so the generated project is not portable. Import in place (output = the " +
+                    "project's own folder), or pass --copy-sources to mirror the sources into the output folder.");
             return sources;
         }
 
