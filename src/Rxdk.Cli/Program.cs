@@ -541,14 +541,8 @@ static int CmdInfo(Dictionary<string, string> opts)
     Console.WriteLine($"projectRefs:    {string.Join(", ", manifest.ProjectReferences ?? new())}");
     Console.WriteLine($"usesCpp:        {manifest.UsesCpp}");
     Console.WriteLine($"needsIntelliSense: {manifest.NeedsIntelliSense}");
-    Console.WriteLine($"isPrebuilt:     {manifest.IsPrebuilt}");
     Console.WriteLine($"isLibrary:      {manifest.IsLibrary}");
     Console.WriteLine($"isDxt:          {manifest.IsDxt}");
-    if (manifest.IsPrebuilt)
-    {
-        Console.WriteLine($"prebuilt.xbe:   {manifest.Prebuilt!.Xbe}");
-        Console.WriteLine($"prebuilt.remote:{manifest.Prebuilt!.RemoteName}");
-    }
     return 0;
 }
 

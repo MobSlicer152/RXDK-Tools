@@ -91,62 +91,6 @@ public static class XboxDeploy
         }
     }
 
-    public sealed class DeployPrebuiltOptions
-    {
-        public required string XbePath { get; init; }
-        public string? PdbPath { get; init; }
-        public string? MapPath { get; init; }
-        public string? RemoteName { get; init; }
-        public string? ConsoleName { get; init; }
-        public bool Quiet { get; init; }
-        public Action<string>? Log { get; init; }
-    }
-
-    /// <summary>Manifest-less deploy of an explicit prebuilt XBE (+ optional PDB/MAP).</summary>
-    public static async Task<DeployResult> DeployPrebuiltAsync(DeployPrebuiltOptions opts, CancellationToken ct = default)
-    {
-        try
-        {
-            var xbePath = Path.GetFullPath(opts.XbePath);
-            if (!File.Exists(xbePath))
-                return DeployResult.Fail($"XBE not found: {xbePath}");
-            var remoteName = opts.RemoteName ?? Path.GetFileNameWithoutExtension(xbePath);
-            var remoteDir = $@"xe:\{remoteName}".TrimEnd('\\');
-
-            var xbcp = RxdkPaths.ResolveHostTool("xbcp");
-            var displayAddr = string.IsNullOrWhiteSpace(opts.ConsoleName)
-                ? await ConsoleResolver.GetActiveXboxAddressAsync(ct)
-                : opts.ConsoleName.Trim();
-            var consoleSwitch = await ConsoleResolver.ResolveConsoleSwitchAsync(opts.ConsoleName, ct);
-            opts.Log?.Invoke(displayAddr is not null
-                ? $"Deploying to Xbox '{displayAddr}' -> {remoteDir}"
-                : $"Deploying to default Xbox -> {remoteDir}");
-
-            var toCopy = new List<string> { xbePath };
-            if (!string.IsNullOrEmpty(opts.PdbPath)) toCopy.Add(Path.GetFullPath(opts.PdbPath));
-            if (!string.IsNullOrEmpty(opts.MapPath)) toCopy.Add(Path.GetFullPath(opts.MapPath));
-
-            var sent = new List<string>();
-            foreach (var file in toCopy)
-            {
-                if (!File.Exists(file)) { opts.Log?.Invoke($"Warning: skip missing file: {file}"); continue; }
-                var name = Path.GetFileName(file);
-                var dest = $@"{remoteDir}\{name}";
-                if (!opts.Quiet) opts.Log?.Invoke($"{name} -> {dest}");
-                await XbcpCopyAsync(xbcp, file, dest, consoleSwitch, opts.Log, ct);
-                sent.Add(name);
-            }
-            if (sent.Count == 0)
-                return DeployResult.Fail($"No files deployed for {xbePath}");
-            opts.Log?.Invoke($"Deployed: {string.Join(", ", sent)} -> {remoteDir}");
-            return new DeployResult(true, sent);
-        }
-        catch (Exception err)
-        {
-            return DeployResult.Fail(err.Message);
-        }
-    }
-
     /// <summary>Delete a DXT from the console's E:\dxt via xbdel (pair with a warm reboot).</summary>
     public static async Task<DeployResult> RemoveDxtAsync(
         string projectRoot, string? projectName = null, string? consoleName = null,

@@ -81,28 +81,6 @@ public sealed class RxdkImageBuildOptions
     public string? DefaultSaveImage { get; set; }
 }
 
-/// <summary>A prebuilt-XBE project references existing artifacts in place (no compile step).</summary>
-public sealed class RxdkPrebuiltConfig
-{
-    /// <summary>Absolute local path to the .xbe.</summary>
-    public string Xbe { get; set; } = "";
-
-    /// <summary>Absolute local path to the .pdb (symbols).</summary>
-    public string? Pdb { get; set; }
-
-    /// <summary>Absolute local path to the .map (globals).</summary>
-    public string? Map { get; set; }
-
-    /// <summary>Optional host PE .exe; used for image size, falls back to the XBE header.</summary>
-    public string? Exe { get; set; }
-
-    /// <summary>Optional source root for PDBs built on another machine.</summary>
-    public string? SrcRoot { get; set; }
-
-    /// <summary>Remote folder name under xe:\\ for deploy/launch.</summary>
-    public string RemoteName { get; set; } = "";
-}
-
 public sealed class RxdkProjectManifest
 {
     public string Name { get; set; } = "";
@@ -139,9 +117,6 @@ public sealed class RxdkProjectManifest
     /// include path automatically.
     /// </summary>
     public List<string>? ProjectReferences { get; set; }
-
-    /// <summary>When set, this is a prebuilt-XBE project (deploy + debug, no build).</summary>
-    public RxdkPrebuiltConfig? Prebuilt { get; set; }
 
     public string? OutputDir { get; set; }
 
@@ -240,7 +215,6 @@ public sealed class RxdkProjectManifest
             LibraryPaths = over.LibraryPaths ?? LibraryPaths,
             AdditionalLibraries = over.AdditionalLibraries ?? AdditionalLibraries,
             ProjectReferences = over.ProjectReferences ?? ProjectReferences,
-            Prebuilt = over.Prebuilt ?? Prebuilt,
             OutputDir = over.OutputDir ?? OutputDir,
             DeployPaths = over.DeployPaths ?? DeployPaths,
             Embed = over.Embed ?? Embed,
@@ -276,9 +250,6 @@ public sealed class RxdkProjectManifest
         string.IsNullOrWhiteSpace(CppStandard) ? "c++23" : CppStandard!.Trim();
 
     [JsonIgnore]
-    public bool IsPrebuilt => Prebuilt is not null && !string.IsNullOrEmpty(Prebuilt.Xbe);
-
-    [JsonIgnore]
     public bool IsLibrary => Type == RxdkProjectKind.Library;
 
     /// <summary>
@@ -296,6 +267,5 @@ public sealed class RxdkProjectManifest
     /// <summary>True when the project has compilable sources that need C/C++ IntelliSense.</summary>
     [JsonIgnore]
     public bool NeedsIntelliSense =>
-        !IsPrebuilt &&
-        (Sources?.Any(s => System.Text.RegularExpressions.Regex.IsMatch(s, @"\.(c|cpp|cxx|cc|h|hpp)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) ?? false);
+        Sources?.Any(s => System.Text.RegularExpressions.Regex.IsMatch(s, @"\.(c|cpp|cxx|cc|h|hpp)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) ?? false;
 }
