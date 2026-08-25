@@ -247,8 +247,17 @@ internal sealed class ManagedSymbols
                 return FormatEnum(type, address, memory);
 
             case PdbTypeKind.Pointer:
-                expandable = false;
+            {
+                // A pointer to an aggregate/array is expandable: expanding dereferences it to show the
+                // pointee's members (so `this` and any struct/class* -- e.g. m_pd3dDevice -- drill in).
+                // char*/wchar_t* are rendered as strings (referent is a primitive => not expandable),
+                // and void*/pointer-to-pointer stay non-expandable.
+                var referent = type.ReferentType != 0 ? _pdb.Types.Peel(type.ReferentType) : null;
+                expandable = referent is not null &&
+                    ((referent.IsAggregate && referent.Members.Count > 0) ||
+                     (referent.Kind == PdbTypeKind.Array && referent.ElementCount > 0));
                 return FormatPointer(type, address, memory);
+            }
 
             default:
                 expandable = false;
@@ -661,6 +670,20 @@ internal sealed class ManagedSymbols
     private void EmitChildren(uint typeIndex, nuint address, KitMemoryAccess memory, VariableJson variables)
     {
         var type = _pdb.Types.Resolve(typeIndex);
+
+        // A pointer expands by dereferencing: read the pointee address at `address`, then show the
+        // referent's children. This is what makes `this` (a CXBoxSample*) and every struct/class*
+        // member browsable. Peel modifiers first (a const pointer is still a pointer); a null or
+        // unreadable pointer simply yields no rows.
+        var peeled = _pdb.Types.Peel(type.TypeIndex);
+        if (peeled.Kind == PdbTypeKind.Pointer && peeled.ReferentType != 0)
+        {
+            var target = memory.ReadDword(address);
+            if (target is null || target.Value == 0)
+                return;
+            EmitChildren(peeled.ReferentType, (nuint)target.Value, memory, variables);
+            return;
+        }
 
         // Recognized standard containers show their elements instead of internal pointers/nodes.
         if (TryEmitVector(type, address, memory, variables) ||

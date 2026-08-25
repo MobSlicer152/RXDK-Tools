@@ -16,7 +16,10 @@ public sealed partial class XboxDebugAdapter
     private async Task StartBridgeAsync(string? consoleName)
     {
         var bridgePath = BridgePath.Resolve(string.IsNullOrEmpty(_bridgePathOverride) ? null : _bridgePathOverride);
-        _bridge = new BridgeClient(bridgePath);
+        // Export the session's console to the bridge (RXDK_XBOX) so pre-launch breakpoint commands
+        // target it, not the machine-wide default console (which VS Code, unlike VS, exercises because
+        // it issues setBreakpoints before the launch that would otherwise carry the console).
+        _bridge = new BridgeClient(bridgePath, consoleName);
         _bridge.Log += msg =>
         {
             foreach (var line in msg.Split('\n'))

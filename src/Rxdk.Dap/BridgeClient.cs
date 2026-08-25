@@ -52,6 +52,7 @@ public sealed class BridgeMessage
 public sealed class BridgeClient : IDisposable
 {
     private readonly string _bridgePath;
+    private readonly string? _defaultConsole;
     private Process? _proc;
     private StreamWriter? _stdin;
     private int _nextId = 1;
@@ -62,7 +63,18 @@ public sealed class BridgeClient : IDisposable
     public event Action<string>? Log;
     public event Action<int?>? Exited;
 
-    public BridgeClient(string bridgePath) => _bridgePath = bridgePath;
+    /// <param name="defaultConsole">
+    /// The session's target console (name or IP). Exported to the bridge as RXDK_XBOX so EVERY command
+    /// -- including the pre-launch setBreakpoint that VS Code issues before the title is launched --
+    /// targets this console, instead of falling back to the machine-wide default console (which may be
+    /// stale). Without it, a breakpoint set before launch connects to the wrong/unreachable console,
+    /// hangs, and is dropped. Empty/null leaves the bridge's own default resolution in place.
+    /// </param>
+    public BridgeClient(string bridgePath, string? defaultConsole = null)
+    {
+        _bridgePath = bridgePath;
+        _defaultConsole = string.IsNullOrWhiteSpace(defaultConsole) ? null : defaultConsole.Trim();
+    }
 
     public void Start()
     {
@@ -87,6 +99,8 @@ public sealed class BridgeClient : IDisposable
         if (managed is not null)
             foreach (var kv in managed) psi.Environment[kv.Key] = kv.Value;
         psi.Environment["PATH"] = pathEnv;
+        if (_defaultConsole is not null)
+            psi.Environment["RXDK_XBOX"] = _defaultConsole;
 
         _proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
         _proc.OutputDataReceived += (_, e) => { if (e.Data is not null) OnLine(e.Data); };
