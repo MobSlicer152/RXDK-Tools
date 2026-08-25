@@ -130,6 +130,11 @@ public sealed class RxdkProjectManifest
     /// stops at the .xbe (plus any deployPaths staged into out\Build), skipping ISO creation.</summary>
     public bool? CreateIso { get; set; }
 
+    /// <summary>Force every file to be (re)copied on deploy. Default false: deploy passes xbcp -d so
+    /// only files that are new or newer than the console copy are sent (fast incremental redeploy).
+    /// Set true to always overwrite regardless of timestamp.</summary>
+    public bool? ForceCopy { get; set; }
+
     /// <summary>imagebld.exe switches for the PE -> XBE step.</summary>
     public RxdkImageBuildOptions? ImageBuild { get; set; }
 
@@ -219,6 +224,7 @@ public sealed class RxdkProjectManifest
             DeployPaths = over.DeployPaths ?? DeployPaths,
             Embed = over.Embed ?? Embed,
             CreateIso = over.CreateIso ?? CreateIso,
+            ForceCopy = over.ForceCopy ?? ForceCopy,
             ImageBuild = over.ImageBuild ?? ImageBuild,
             IncludePaths = over.IncludePaths ?? IncludePaths,
             PublicIncludePaths = over.PublicIncludePaths ?? PublicIncludePaths,
