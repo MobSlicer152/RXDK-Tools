@@ -3,11 +3,14 @@ using Rxdk.Engine.Platform;
 namespace Rxdk.Engine.Bootstrap;
 
 /// <summary>Installed-vs-available version snapshot for one RXDK component.</summary>
-public sealed record ComponentVersion(string Name, string? Current, string? Available)
+public sealed record ComponentVersion(string Name, string? Current, string? Available, bool Blocked = false)
 {
-    /// <summary>A newer version is published than the one installed (both known and differing).</summary>
+    /// <summary>A newer version is published than the one installed (both known and differing) AND the
+    /// loaded extension is new enough to use it. Blocked components report no update — the user must
+    /// update the extension first (see <see cref="Blocked"/>).</summary>
     public bool UpdateAvailable =>
-        !string.IsNullOrWhiteSpace(Current) && !string.IsNullOrWhiteSpace(Available)
+        !Blocked
+        && !string.IsNullOrWhiteSpace(Current) && !string.IsNullOrWhiteSpace(Available)
         && !string.Equals(Normalize(Current!), Normalize(Available!), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Installed at all (a current version is known).</summary>
@@ -29,8 +32,14 @@ public static class ComponentVersions
 {
     private const string ToolsRepo = "Team-Resurgent/RXDK-Tools";
 
-    /// <summary>Snapshot all four components. Network reads run concurrently.</summary>
-    public static async Task<IReadOnlyList<ComponentVersion>> GetAllAsync(CancellationToken ct = default)
+    /// <summary>
+    /// Snapshot all four components (network reads run concurrently). When <paramref name="maxVersion"/>
+    /// is the loaded extension's version, any component whose available version is strictly newer is
+    /// marked <see cref="ComponentVersion.Blocked"/> — its update is withheld until the extension itself
+    /// is updated, so a component can never run ahead of the extension that drives it.
+    /// </summary>
+    public static async Task<IReadOnlyList<ComponentVersion>> GetAllAsync(
+        string? maxVersion = null, CancellationToken ct = default)
     {
         var sdk = GitBackedAsync(
             "SDK", RxdkPaths.GetStagedSdkRoot(),
@@ -43,7 +52,11 @@ public static class ComponentVersions
             SamplesStaging.GetSamplesGitUrl(), SamplesStaging.GetSamplesGitRef(), ct);
         var tools = ToolsAsync(ct);
 
-        return await Task.WhenAll(sdk, docs, samples, tools);
+        var all = await Task.WhenAll(sdk, docs, samples, tools);
+        if (string.IsNullOrWhiteSpace(maxVersion)) return all;
+        return all
+            .Select(c => RxdkSemver.IsNewer(c.Available, maxVersion) ? c with { Blocked = true } : c)
+            .ToArray();
     }
 
     private static async Task<ComponentVersion> GitBackedAsync(

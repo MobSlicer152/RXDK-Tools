@@ -48,11 +48,13 @@ switch (command)
     case "info":
         return CmdInfo(opts);
     case "install-tools":
+    case "update-tools":
         return await CmdInstallTools(opts);
     case "tools-status":
         return CmdToolsStatus();
     case "install-sdk":
-        return await CmdInstallSdk();
+    case "update-sdk":
+        return await CmdInstallSdk(opts);
     case "sdk-status":
         return CmdSdkStatus();
     case "install-zig":
@@ -60,22 +62,17 @@ switch (command)
     case "zig-status":
         return await CmdZigStatus();
     case "install-docs":
-        return await CmdInstallDocs();
+    case "update-docs":
+        return await CmdInstallDocs(opts);
     case "docs-status":
         return CmdDocsStatus();
     case "install-samples":
     case "update-samples":
-        return await CmdInstallSamples();
+        return await CmdInstallSamples(opts);
     case "samples-status":
         return CmdSamplesStatus();
-    case "update-sdk":
-        return await CmdInstallSdk();
-    case "update-docs":
-        return await CmdInstallDocs();
-    case "update-tools":
-        return await CmdInstallTools(opts);
     case "versions":
-        return await CmdVersions();
+        return await CmdVersions(opts);
     case "build":
         return await CmdBuild(opts);
     case "deploy":
@@ -152,8 +149,30 @@ static int CmdImportSln(Dictionary<string, string> opts)
     }
 }
 
+// Extension-compatibility gate: if --max-version (the loaded extension's version) is given and the
+// component's live version is newer, refuse the install/update and tell the user to update the
+// extension first, so a component can never run ahead of the extension that drives it. Exit code 3
+// distinguishes "gated" from a real failure (1).
+static async Task<int> GateComponentAsync(string componentName, Dictionary<string, string> opts)
+{
+    if (!opts.TryGetValue("max-version", out var maxVersion) || string.IsNullOrWhiteSpace(maxVersion))
+        return 0;
+    var all = await ComponentVersions.GetAllAsync(maxVersion);
+    var match = all.FirstOrDefault(c => string.Equals(c.Name, componentName, StringComparison.OrdinalIgnoreCase));
+    if (match?.Blocked == true)
+    {
+        Console.Error.WriteLine(
+            $"{componentName} {match.Available} needs a newer RXDK extension (you have {maxVersion}). " +
+            $"Update the RXDK extension first, then update {componentName}.");
+        return 3;
+    }
+    return 0;
+}
+
 static async Task<int> CmdInstallTools(Dictionary<string, string> opts)
 {
+    var gated = await GateComponentAsync("Tools", opts);
+    if (gated != 0) return gated;
     opts.TryGetValue("tools-tag", out var toolsTag);
     opts.TryGetValue("xdvdfs-tag", out var xdvdfsTag);
     try
@@ -186,8 +205,10 @@ static int CmdToolsStatus()
     return installed ? 0 : 1;
 }
 
-static async Task<int> CmdInstallSdk()
+static async Task<int> CmdInstallSdk(Dictionary<string, string> opts)
 {
+    var gated = await GateComponentAsync("SDK", opts);
+    if (gated != 0) return gated;
     try
     {
         var root = await SdkStaging.EnsureAsync(log: msg => Console.WriteLine(msg));
@@ -211,8 +232,10 @@ static int CmdSdkStatus()
     return headers && libs ? 0 : 1;
 }
 
-static async Task<int> CmdInstallDocs()
+static async Task<int> CmdInstallDocs(Dictionary<string, string> opts)
 {
+    var gated = await GateComponentAsync("Docs", opts);
+    if (gated != 0) return gated;
     try
     {
         var root = await DocsStaging.EnsureAsync(log: msg => Console.WriteLine(msg));
@@ -234,8 +257,10 @@ static int CmdDocsStatus()
     return present ? 0 : 1;
 }
 
-static async Task<int> CmdInstallSamples()
+static async Task<int> CmdInstallSamples(Dictionary<string, string> opts)
 {
+    var gated = await GateComponentAsync("Samples", opts);
+    if (gated != 0) return gated;
     try
     {
         var root = await SamplesStaging.EnsureAsync(log: msg => Console.WriteLine(msg));
@@ -257,12 +282,14 @@ static int CmdSamplesStatus()
     return present ? 0 : 1;
 }
 
-static async Task<int> CmdVersions()
+static async Task<int> CmdVersions(Dictionary<string, string> opts)
 {
-    // Machine-parseable: one "name<TAB>current<TAB>available" line per component. Missing = "-".
-    var components = await ComponentVersions.GetAllAsync();
+    // Machine-parseable: one "name<TAB>current<TAB>available<TAB>blocked" line per component.
+    // Missing = "-"; blocked = "1" when the live version needs a newer extension than --max-version.
+    opts.TryGetValue("max-version", out var maxVersion);
+    var components = await ComponentVersions.GetAllAsync(maxVersion);
     foreach (var c in components)
-        Console.WriteLine($"{c.Name}\t{c.Current ?? "-"}\t{c.Available ?? "-"}");
+        Console.WriteLine($"{c.Name}\t{c.Current ?? "-"}\t{c.Available ?? "-"}\t{(c.Blocked ? "1" : "0")}");
     return 0;
 }
 
