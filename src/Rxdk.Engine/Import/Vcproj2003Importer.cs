@@ -1,6 +1,9 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Xml.Linq;
+using Rxdk.Engine.Model;
 
 namespace Rxdk.Engine.Import;
 
@@ -19,6 +22,8 @@ public static class Vcproj2003Importer
     public sealed class ImportResult
     {
         public string VcxprojPath = "";
+        /// <summary>The emitted rxdk.project.json (the project file VS Code loads).</summary>
+        public string ManifestPath = "";
         public string ProjectName = "";
         public string ProjectGuid = "";
         public bool IsLibrary;
@@ -158,6 +163,15 @@ public static class Vcproj2003Importer
         File.WriteAllText(vcxprojPath + ".filters", BuildFilters(sources, filters), new UTF8Encoding(false));
         result.VcxprojPath = vcxprojPath;
 
+        // Also emit rxdk.project.json from the SAME parsed data. It's the project file VS Code opens,
+        // and the committed manifest VS20XX's unified project model uses -- so an imported VS2003
+        // project loads in both IDEs. Only adds a file; the .vcxproj flow above is unchanged.
+        var manifestPath = Path.Combine(outDir, "rxdk.project.json");
+        File.WriteAllText(manifestPath,
+            JsonSerializer.Serialize(BuildManifest(name, isLib, configs, sources), ManifestWriteOptions) + "\n",
+            new UTF8Encoding(false));
+        result.ManifestPath = manifestPath;
+
         // No scaffold is copied per-project: the RXDK MSBuild integration (props/targets +
         // property-page rules) lives in the installed "Xbox" platform (VCTargetsPath\Platforms\Xbox),
         // which the imported project inherits from Platform=Xbox. The scaffoldDir parameter is kept
@@ -171,6 +185,88 @@ public static class Vcproj2003Importer
         log?.Invoke($"Imported {name}: {result.ConfigurationCount} configuration(s), {result.SourceCount} source file(s) -> {vcxprojPath}");
         foreach (var w in result.Warnings) log?.Invoke($"Warning: {w}");
         return result;
+    }
+
+    // Clean, indented output that omits null fields (a minimal manifest), matching the committed
+    // rxdk.project.json files. camelCase + camelCase enums align with RxdkManifestLoader's reader.
+    private static readonly JsonSerializerOptions ManifestWriteOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+        // Per-configuration sub-manifests inherit the top-level name; skip their empty "name" on write
+        // (WhenWritingNull can't -- string's default is null, not "") so only the top-level name is emitted.
+        TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver
+        {
+            Modifiers =
+            {
+                static ti =>
+                {
+                    if (ti.Type != typeof(RxdkProjectManifest)) return;
+                    foreach (var p in ti.Properties)
+                        if (p.Name == "name")
+                            p.ShouldSerialize = static (_, val) => val is string s && s.Length > 0;
+                },
+            },
+        },
+    };
+
+    // Build the multi-config rxdk.project.json from the parsed configs + resolved sources. Sources are
+    // shared across configs in a VS2003 project, so each config lists the same compile set (as the
+    // sample manifests do); per-config libraries/defines/includes/deploy/image settings are preserved.
+    private static RxdkProjectManifest BuildManifest(string name, bool isLib, List<Cfg> configs,
+        List<(string include, string tag, string? filter)> sources)
+    {
+        var srcList = sources.Where(s => s.tag == "ClCompile").Select(s => s.include).ToList();
+        static List<string>? AsList(string semi) =>
+            SplitList(semi).Where(x => !string.IsNullOrWhiteSpace(x)).ToList() is { Count: > 0 } l ? l : null;
+
+        RxdkImageBuildOptions? Image(Cfg c)
+        {
+            if (isLib) return null;
+            var hasAny = c.StackSize != null || c.ImageDebug != null || c.LimitMemory != null ||
+                c.DontModifyHd != null || c.DontMountUd != null || c.NoLibWarn != null ||
+                c.TitleId != null || c.TitleName != null || c.TitleImage != null || c.XbeVersion != null;
+            if (!hasAny) return null;
+            static bool? B(string? s) => s is null ? null : s == "true";
+            return new RxdkImageBuildOptions
+            {
+                StackSize = int.TryParse(c.StackSize, out var ss) ? ss : null,
+                Debug = B(c.ImageDebug),
+                LimitMemory = B(c.LimitMemory),
+                DontModifyHardDisk = B(c.DontModifyHd),
+                DontMountUtilityDrive = B(c.DontMountUd),
+                NoLibWarn = B(c.NoLibWarn),
+                TestId = c.TitleId,
+                TestName = c.TitleName ?? name,
+                TestVersion = c.XbeVersion,
+                TitleImage = c.TitleImage,
+            };
+        }
+
+        RxdkProjectManifest ForConfig(Cfg c) => new()
+        {
+            Configuration = c.Flavor.Equals("Debug", StringComparison.OrdinalIgnoreCase)
+                ? RxdkConfiguration.Debug : RxdkConfiguration.Release,
+            Sources = srcList.Count > 0 ? new List<string>(srcList) : null,
+            Libraries = AsList(c.Libraries),
+            IncludePaths = AsList(c.IncludePaths),
+            Defines = AsList(c.Defines),
+            DeployPaths = AsList(c.DeployPaths),
+            ImageBuild = Image(c),
+        };
+
+        var defaultCfg = configs.FirstOrDefault(c => c.Name.Equals("Debug", StringComparison.OrdinalIgnoreCase))?.Name
+            ?? configs.FirstOrDefault()?.Name;
+
+        return new RxdkProjectManifest
+        {
+            Name = name,
+            Type = isLib ? RxdkProjectKind.Library : null,
+            Configurations = configs.ToDictionary(c => c.Name, ForConfig, StringComparer.OrdinalIgnoreCase),
+            DefaultConfiguration = defaultCfg,
+        };
     }
 
     private static XElement? FirstConfig(XElement root) =>
