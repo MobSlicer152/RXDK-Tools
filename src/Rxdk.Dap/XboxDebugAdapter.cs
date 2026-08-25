@@ -411,7 +411,16 @@ public sealed partial class XboxDebugAdapter : DebugAdapterBase
         try
         {
             var result = await _bridge.RequestAsync("evaluate", Args(("expression", responder.Arguments.Expression), ("threadId", _stoppedThreadId)));
-            responder.SetResponse(new EvaluateResponse(result.GetString("value") ?? "???", 0));
+            // An aggregate result (struct/array) is drillable: hand back a variablesReference keyed by
+            // the base the bridge reported, so VS shows an expand chevron on the hover/Watch value and
+            // fetches children via getMembers — the same path Locals uses.
+            var childRef = 0;
+            if (result.GetBool("expandable"))
+            {
+                childRef = _nextChildRef++;
+                _varChildren[childRef] = result.GetString("base") ?? responder.Arguments.Expression;
+            }
+            responder.SetResponse(new EvaluateResponse(result.GetString("value") ?? "???", childRef));
         }
         catch (Exception e)
         {

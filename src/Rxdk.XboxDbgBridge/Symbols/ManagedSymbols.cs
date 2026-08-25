@@ -271,10 +271,11 @@ internal sealed class ManagedSymbols
     /// globals. This is the managed replacement for dbghelp's expression engine and works on every
     /// platform. Returns false with a short <paramref name="error"/> token on any failure.
     /// </summary>
-    internal bool TryEvaluate(string expression, ref XbdmContext context, KitMemoryAccess memory, out string value, out string? error)
+    internal bool TryEvaluate(string expression, ref XbdmContext context, KitMemoryAccess memory, out string value, out string? error, out bool expandable)
     {
         value = string.Empty;
         error = null;
+        expandable = false;
 
         if (!ExpressionPath.TryParse(expression, out var baseName, out var accessors))
         {
@@ -302,7 +303,7 @@ internal sealed class ManagedSymbols
             return false;
         }
 
-        value = Describe(finalType, (nuint)finalAddress, memory, out _);
+        value = Describe(finalType, (nuint)finalAddress, memory, out expandable);
         return true;
     }
 

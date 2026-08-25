@@ -193,10 +193,11 @@ internal sealed class SymbolService : IDisposable
         return diag.ToString();
     }
 
-    internal bool TryEvaluate(string expression, ref Xbdm.XbdmContext context, KitMemoryAccess memory, out string value, out string? error)
+    internal bool TryEvaluate(string expression, ref Xbdm.XbdmContext context, KitMemoryAccess memory, out string value, out string? error, out bool expandable)
     {
         value = string.Empty;
         error = null;
+        expandable = false;
         if (!_loaded || _pdbBase == 0)
         {
             error = "symbolsNotLoaded";
@@ -212,7 +213,7 @@ internal sealed class SymbolService : IDisposable
 
         try
         {
-            return managed.TryEvaluate(expression, ref context, memory, out value, out error);
+            return managed.TryEvaluate(expression, ref context, memory, out value, out error, out expandable);
         }
         catch (Exception ex)
         {

@@ -140,7 +140,7 @@ internal sealed partial class DebugBridgeSession
         var context = new Xbdm.XbdmContext { ContextFlags = XbdmDebugConstants.ContextControl | XbdmDebugConstants.ContextInteger };
         _debug!.GetThreadContext(threadId, ref context);
 
-        if (!_symbols.TryEvaluate(expression, ref context, CreateKitMemory(), out var value, out var error))
+        if (!_symbols.TryEvaluate(expression, ref context, CreateKitMemory(), out var value, out var error, out var expandable))
         {
             BridgeWriter.EmitResult(id, false, $"\"error\":\"{error ?? "evaluate"}\"");
             return;
@@ -148,6 +148,13 @@ internal sealed partial class DebugBridgeSession
 
         var extra = new StringBuilder("\"value\":");
         BridgeJsonWriter.AppendEscaped(extra, value);
+        if (expandable)
+        {
+            // Hand back a base the DAP adapter can drill into with getMembers (same machinery as
+            // Locals), so a hovered/watched struct or array shows an expand chevron.
+            extra.Append(",\"expandable\":true,\"base\":");
+            BridgeJsonWriter.AppendEscaped(extra, expression);
+        }
         BridgeWriter.EmitResult(id, true, extra.ToString());
     }
 
