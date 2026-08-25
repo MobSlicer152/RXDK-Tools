@@ -398,21 +398,31 @@ public sealed partial class XboxDebugAdapter : DebugAdapterBase
 
     protected override async void HandleEvaluateRequestAsync(IRequestResponder<EvaluateArguments, EvaluateResponse> responder)
     {
-        var resultText = "???";
+        // A data-tip HOVER sends whatever token is under the cursor while debugging — a comment, a
+        // preprocessor macro, a keyword — most of which isn't a runtime expression. VS shows a data tip
+        // only when the evaluate SUCCEEDS, so on failure we fail the request quietly (no tooltip) rather
+        // than returning a "badExpression"/"symbol not found" string that VS renders as an error box.
+        // Watch / Immediate (repl) keep the descriptive reason so the user can see why it didn't resolve.
+        var isHover = responder.Arguments.Context == EvaluateArguments.ContextValue.Hover;
         try
         {
             var result = await _bridge.RequestAsync("evaluate", Args(("expression", responder.Arguments.Expression), ("threadId", _stoppedThreadId)));
-            resultText = result.GetString("value") ?? "???";
+            responder.SetResponse(new EvaluateResponse(result.GetString("value") ?? "???", 0));
         }
         catch (Exception e)
         {
+            if (isHover)
+            {
+                responder.SetError(new ProtocolException(e.Message));
+                return;
+            }
             var msg = e.Message;
-            resultText = msg.Contains("memberNotFound") ? "member not found (try expanding struct in Locals, or d3pp.SwapEffect)"
+            var resultText = msg.Contains("memberNotFound") ? "member not found (try expanding struct in Locals, or d3pp.SwapEffect)"
                 : msg.Contains("symbolNotFound") ? "symbol not found"
                 : msg.Contains("readFailed") ? "could not read memory"
                 : $"error: {msg}";
+            responder.SetResponse(new EvaluateResponse(resultText, 0));
         }
-        responder.SetResponse(new EvaluateResponse(resultText, 0));
     }
 
     // ---- custom request: setGlobalsFilter (live Globals visibility toggle) ----
