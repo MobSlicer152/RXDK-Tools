@@ -231,15 +231,19 @@ public sealed partial class XboxDebugAdapter : DebugAdapterBase
 
     protected override async void HandleContinueRequestAsync(IRequestResponder<ContinueArguments, ContinueResponse> responder)
     {
+        // Answer the continue request FIRST, then resume. The bridge's "go" returns as soon as the
+        // thread is resumed (not when it next stops), so the StoppedEvent for the next breakpoint can
+        // fire almost immediately on the notification thread — and a StoppedEvent that reaches VS while
+        // the continue request is still unanswered is DROPPED, which made a 2nd breakpoint look like it
+        // was never hit. Responding up front guarantees the ContinueResponse precedes any StoppedEvent.
+        responder.SetResponse(new ContinueResponse { AllThreadsContinued = true });
         try
         {
             await _bridge.RequestAsync("go");
-            responder.SetResponse(new ContinueResponse { AllThreadsContinued = true });
         }
         catch (Exception e)
         {
             Console_($"continue failed: {e.Message}\n");
-            responder.SetError(new ProtocolException(e.Message));
         }
     }
 
