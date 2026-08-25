@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Rxdk.Engine.Model;
 
@@ -32,6 +33,10 @@ public static class Vcproj2003Importer
         public List<(string Name, string Flavor)> Configs = new();
         public List<string> UnmappedLibraries = new();
         public List<string> Warnings = new();
+        /// <summary>Per-file, clickable diagnostics in gcc/clang format (<c>path:line:col: warning: msg</c>)
+        /// that both IDEs' output parsers turn into navigable Error-List / Problems entries. One entry
+        /// per file per category (points at the first hit), bounded so a large import can't flood.</summary>
+        public List<string> Diagnostics = new();
         /// <summary>True when the .vcproj has no Xbox configuration at all -- a PC-side host
         /// tool that ships alongside a sample (CreatePushBufferOnPC writes pushbuffer data on
         /// the PC for the Xbox sample to load). Nothing was generated for it.</summary>
@@ -154,6 +159,8 @@ public static class Vcproj2003Importer
         CollectFiles(root.Element("Files"), null, vcprojDir, rawFiles, filters);
         var sources = ResolveSources(rawFiles, vcprojDir, outDir, copySources, result);
         result.SourceCount = sources.Count(s => s.tag == "ClCompile");
+        ScanForInlineAsm(rawFiles, result);
+        ScanForLegacyForScope(rawFiles, result);
 
         // ---- write .vcxproj + .filters ----
         var projectGuid = "{" + Guid.NewGuid().ToString().ToUpperInvariant() + "}";
@@ -184,7 +191,52 @@ public static class Vcproj2003Importer
 
         log?.Invoke($"Imported {name}: {result.ConfigurationCount} configuration(s), {result.SourceCount} source file(s) -> {vcxprojPath}");
         foreach (var w in result.Warnings) log?.Invoke($"Warning: {w}");
+        // Emit the clickable per-file diagnostics raw (no "Warning:" prefix) so the IDEs' gcc-style
+        // parsers pick them up as navigable Error-List / Problems entries.
+        foreach (var d in result.Diagnostics) log?.Invoke(d);
         return result;
+    }
+
+    // VC++ project type GUID used in .sln Project() entries (matches SolutionImporter's).
+    private const string VcxprojTypeGuid = "{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}";
+
+    /// <summary>
+    /// Writes a single-project <c>&lt;name&gt;.sln</c> beside the imported .vcxproj so the project opens
+    /// directly in Visual Studio (double-click) rather than only as a bare .vcxproj. Multi-project
+    /// solution imports use SolutionImporter's umbrella .sln instead, so this is only called for the
+    /// standalone import-vcproj path. No-op if nothing was generated (e.g. a skipped non-Xbox project).
+    /// </summary>
+    public static void WriteSolution(string outDir, ImportResult result)
+    {
+        if (string.IsNullOrEmpty(result.VcxprojPath) || result.Configs.Count == 0) return;
+        var name = result.ProjectName;
+        var vcxprojRel = Path.GetFileName(result.VcxprojPath);
+        var configs = result.Configs.Select(c => c.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        sb.AppendLine("Microsoft Visual Studio Solution File, Format Version 12.00");
+        sb.AppendLine("# Visual Studio Version 17");
+        sb.AppendLine("VisualStudioVersion = 17.0.0.0");
+        sb.AppendLine("MinimumVisualStudioVersion = 10.0.0.0");
+        sb.AppendLine($"Project(\"{VcxprojTypeGuid}\") = \"{name}\", \"{vcxprojRel}\", \"{result.ProjectGuid}\"");
+        sb.AppendLine("EndProject");
+        sb.AppendLine("Global");
+        sb.AppendLine("\tGlobalSection(SolutionConfigurationPlatforms) = preSolution");
+        foreach (var c in configs) sb.AppendLine($"\t\t{c}|Xbox = {c}|Xbox");
+        sb.AppendLine("\tEndGlobalSection");
+        sb.AppendLine("\tGlobalSection(ProjectConfigurationPlatforms) = postSolution");
+        foreach (var c in configs)
+        {
+            sb.AppendLine($"\t\t{result.ProjectGuid}.{c}|Xbox.ActiveCfg = {c}|Xbox");
+            sb.AppendLine($"\t\t{result.ProjectGuid}.{c}|Xbox.Build.0 = {c}|Xbox");
+        }
+        sb.AppendLine("\tEndGlobalSection");
+        sb.AppendLine("\tGlobalSection(SolutionProperties) = preSolution");
+        sb.AppendLine("\t\tHideSolutionNode = FALSE");
+        sb.AppendLine("\tEndGlobalSection");
+        sb.AppendLine("EndGlobal");
+        File.WriteAllText(Path.Combine(outDir, name + ".sln"), sb.ToString(), new UTF8Encoding(false));
     }
 
     // Clean, indented output that omits null fields (a minimal manifest), matching the committed
@@ -399,6 +451,133 @@ public static class Vcproj2003Importer
     // file into outDir, preserving its path relative to the source project (leading "..\" segments
     // are collapsed so nothing escapes outDir), then reference the copy. Same-name clashes from
     // different sources get a numeric suffix. Files already inside outDir are left untouched.
+    // MSVC __asm/_asm blocks (NOT GCC __asm__(...) which Clang handles) — matches the bare token,
+    // excluding __asm__ where the trailing "__" makes it GCC extended asm.
+    private static readonly Regex MsvcAsmRegex =
+        new(@"(?<![\w])(__asm|_asm)(?![\w])", RegexOptions.Compiled);
+
+    // Comment/string spans. Replaced with equal-length blanks that KEEP newlines, so scanning the
+    // result still lines up 1:1 with the original for accurate line numbers, while a token inside a
+    // comment or string literal can't trip a false positive.
+    private static readonly Regex StripRegex =
+        new(@"//[^\n]*|/\*.*?\*/|""(\\.|[^""\\])*""|'(\\.|[^'\\])*'",
+            RegexOptions.Compiled | RegexOptions.Singleline);
+
+    // A bare local declaration like "int i;" on its own line.
+    private static readonly Regex BareDeclRegex = new(
+        @"^\s*(?:unsigned\s+)?(?:int|short|long|char|float|double|DWORD|WORD|BYTE|size_t)\s+([A-Za-z_]\w*)\s*;\s*$",
+        RegexOptions.Compiled);
+
+    // A for-loop that (re)declares a loop variable: "for (int i = ...".
+    private static readonly Regex ForDeclRegex = new(
+        @"\bfor\s*\(\s*(?:unsigned\s+)?(?:int|short|long|char|float|double|DWORD|WORD|BYTE|size_t)\s+([A-Za-z_]\w*)\s*=",
+        RegexOptions.Compiled);
+
+    private const int MaxDiagnosticFiles = 50;
+
+    private static readonly HashSet<string> CodeExtensions =
+        new(StringComparer.OrdinalIgnoreCase) { ".c", ".cpp", ".cxx", ".cc", ".h", ".hpp", ".hxx", ".inl" };
+
+    // Blank out comments/strings but preserve line breaks so line numbers stay exact, then split.
+    private static string[] StrippedLines(string text) =>
+        StripRegex.Replace(text, m => Regex.Replace(m.Value, "[^\n]", " ")).Split('\n');
+
+    /// <summary>
+    /// Emit a bounded set of diagnostics for one hazard category: a single summary "Warning:" headline
+    /// listing the affected files, plus ONE clickable <c>path:line:col: warning: msg</c> diagnostic per
+    /// file (anchored at the first hit, noting "+N more in this file"). Capped at <see cref="MaxDiagnosticFiles"/>
+    /// files so a large legacy import can't flood the Error List / Problems panel.
+    /// </summary>
+    private static void EmitFileDiagnostics(
+        ImportResult result, string category, string advice, List<(string abs, int firstLine, int count)> hits)
+    {
+        if (hits.Count == 0) return;
+        var shown = hits.Take(MaxDiagnosticFiles).ToList();
+        result.Warnings.Add(
+            $"{category} detected in {hits.Count} file(s): " +
+            string.Join(", ", shown.Select(h => Path.GetFileName(h.abs))) +
+            (hits.Count > shown.Count ? $", +{hits.Count - shown.Count} more" : "") +
+            ". " + advice);
+        foreach (var h in shown)
+        {
+            var more = h.count > 1 ? $" (+{h.count - 1} more in this file)" : "";
+            result.Diagnostics.Add($"{h.abs}:{h.firstLine}:1: warning: {category}{more} — {advice}");
+        }
+        if (hits.Count > shown.Count)
+            result.Diagnostics.Add($"...and {hits.Count - shown.Count} more file(s) with {category} (not listed; cap {MaxDiagnosticFiles}).");
+    }
+
+    /// <summary>
+    /// Warns when imported C/C++ sources contain MSVC inline <c>_asm</c>/<c>__asm</c> blocks. The RXDK
+    /// toolchain is Clang, which miscompiles hand-written MS inline asm that clobbers registers without
+    /// declaring it (a real bug we hit: an <c>fsincos</c> block corrupting <c>ebx</c> and hanging the
+    /// title). Flag it at import so the porter reviews/rewrites those blocks in portable C.
+    /// </summary>
+    private static void ScanForInlineAsm(
+        List<(string abs, string tag, string? filter)> raw, ImportResult result)
+    {
+        var hits = new List<(string abs, int firstLine, int count)>();
+        foreach (var abs in DistinctCodeFiles(raw))
+        {
+            string text;
+            try { text = File.ReadAllText(abs); }
+            catch { continue; }
+            var lines = StrippedLines(text);
+            int first = 0, count = 0;
+            for (int i = 0; i < lines.Length; i++)
+                if (MsvcAsmRegex.IsMatch(lines[i])) { if (count == 0) first = i + 1; count++; }
+            if (count > 0) hits.Add((abs, first, count));
+        }
+        EmitFileDiagnostics(result, "MSVC inline __asm",
+            "the RXDK Clang toolchain miscompiles hand-written MS inline asm that clobbers registers " +
+            "without declaring them (can hang or crash the title); rewrite the asm in portable C.", hits);
+    }
+
+    /// <summary>
+    /// Warns when imported sources use the VS2003 <c>/Zc:forScope-</c> idiom: a bare <c>TYPE name;</c>
+    /// declaration shortly followed by <c>for (TYPE name = ...)</c>. Under old MSVC the loop variable had
+    /// function scope, so code AFTER the loop read its exit value; under the RXDK Clang toolchain the
+    /// <c>for</c> declaration is block-scoped and shadows the outer one, leaving it uninitialized — a real
+    /// bug we hit (BootAnim's camera controller read a garbage node index every frame → hang). Heuristic:
+    /// flags any file with the idiom for review, even where the counter is only used inside the loop.
+    /// </summary>
+    private static void ScanForLegacyForScope(
+        List<(string abs, string tag, string? filter)> raw, ImportResult result)
+    {
+        var hits = new List<(string abs, int firstLine, int count)>();
+        foreach (var abs in DistinctCodeFiles(raw))
+        {
+            string text;
+            try { text = File.ReadAllText(abs); }
+            catch { continue; }
+            var lines = StrippedLines(text);
+            var recent = new Dictionary<string, int>(StringComparer.Ordinal); // ident -> decl line index
+            int first = 0, count = 0;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var bd = BareDeclRegex.Match(lines[i]);
+                if (bd.Success) recent[bd.Groups[1].Value] = i;
+                var fd = ForDeclRegex.Match(lines[i]);
+                if (fd.Success && recent.TryGetValue(fd.Groups[1].Value, out var declLine) && i - declLine <= 12)
+                { if (count == 0) first = i + 1; count++; }
+            }
+            if (count > 0) hits.Add((abs, first, count));
+        }
+        EmitFileDiagnostics(result, "legacy VS2003 for-scope idiom",
+            "under Clang the for-loop variable is block-scoped, so code reading the counter after the loop " +
+            "reads a different, uninitialized variable (can hang or misbehave); drop the redundant type in " +
+            "the for so it reuses the outer variable.", hits);
+    }
+
+    // Distinct existing C/C++ source/header files from the raw reference list, preserving order.
+    private static IEnumerable<string> DistinctCodeFiles(List<(string abs, string tag, string? filter)> raw)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (abs, _, _) in raw)
+            if (CodeExtensions.Contains(Path.GetExtension(abs)) && seen.Add(abs) && File.Exists(abs))
+                yield return abs;
+    }
+
     private static List<(string include, string tag, string? filter)> ResolveSources(
         List<(string abs, string tag, string? filter)> raw, string vcprojDir, string outDir,
         bool copySources, ImportResult result)
