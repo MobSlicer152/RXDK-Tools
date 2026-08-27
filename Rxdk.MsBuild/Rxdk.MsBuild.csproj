@@ -12,6 +12,7 @@
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
+    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -56,6 +57,7 @@
   <ItemGroup>
     <Compile Include="Tasks\RxdkToolTask.cs" />
     <Compile Include="Tasks\ZigCompile.cs" />
+    <Compile Include="Tasks\ZigToolTask.cs" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="Properties\" />
