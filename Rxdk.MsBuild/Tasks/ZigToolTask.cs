@@ -1,11 +1,7 @@
 ﻿using Microsoft.Build.CPPTasks;
 using Microsoft.Build.Framework;
-using System;
 using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace Rxdk.MsBuild.Tasks
 {
@@ -46,5 +42,9 @@ namespace Rxdk.MsBuild.Tasks
                 base.AddActiveSwitchToolValue(toolSwitch);
             }
         }
+        protected override ITaskItem[] TrackedInputFiles => Sources;
+        protected override Encoding ResponseFileEncoding => Encoding.UTF8;
+        protected override Encoding StandardOutputEncoding => Encoding.UTF8;
+        protected override Encoding StandardErrorEncoding => Encoding.UTF8;
     }
 }

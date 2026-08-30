@@ -1,18 +1,17 @@
 ﻿using Microsoft.Build.CPPTasks;
 using Microsoft.Build.Framework;
+using Microsoft.Build.Utilities;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.IO;
+using System.Text.RegularExpressions;
+using System.Threading;
 
 namespace Rxdk.MsBuild.Tasks
 {
     public class ZigCompile : ZigToolTask
     {
-        protected override ITaskItem[] TrackedInputFiles => Sources;
-
         public ZigCompile()
         {
             switchOrderList.AddRange(new string[] {
@@ -38,6 +37,12 @@ namespace Rxdk.MsBuild.Tasks
                 "PreprocessorDefinitions",
                 "UndefinePreprocessorDefinitions",
                 "UndefineAllPreprocessorDefinitions",
+                "PrecompiledHeader",
+                "PrecompiledHeaderFile",
+                "PrecompiledHeaderOutputFileDirectory",
+                "PrecompiledHeaderCompileAs",
+                "CompileAs",
+                "ForcedIncludeFiles",
                 "AdditionalOptions",
                 "Sources",
             });
@@ -494,5 +499,228 @@ namespace Rxdk.MsBuild.Tasks
                 );
             }
         }
+
+        protected string PrecompiledHeader
+        {
+            get => PropertyOrNull<string>("PrecompiledHeader");
+            set
+            {
+                UpdateSwitch(
+                    "PrecompiledHeader",
+                    new ToolSwitch(ToolSwitchType.String)
+                    {
+                        DisplayName = "Precompiled Header",
+                        Description = "Create/Use Precompiled Header:Enables creation or use of a precompiled header during the build.",
+                    },
+                    new Dictionary<string, string> {
+                        { "Create", "" },
+                        { "Use", "" },
+                        { "NotUsing", "" },
+                    },
+                    value
+                );
+            }
+        }
+
+        protected string PrecompiledHeaderFile
+        {
+            get => PropertyOrNull<string>("PrecompiledHeaderFile");
+            set
+            {
+                UpdateSwitch(
+                    "PrecompiledHeaderFile",
+                    new ToolSwitch(ToolSwitchType.File)
+                    {
+                        DisplayName = "Precompiled Header File",
+                        Description = "Specifies header file name to use for precompiled header file. This file will be also added to 'Forced Include Files' during build",
+                    },
+                    value
+                );
+            }
+        }
+
+        protected string PrecompiledHeaderOutputFileDirectory
+        {
+            get => PropertyOrNull<string>("PrecompiledHeaderOutputFileDirectory");
+            set
+            {
+                UpdateSwitch(
+                    "PrecompiledHeaderOutputFileDirectory",
+                    new ToolSwitch(ToolSwitchType.Directory)
+                    {
+                        DisplayName = "Precompiled Header Output File Directory",
+                        Description = "Specifies the directory for the generated precompiled header. This directory will be also added to 'Additional Include Directories' during build",
+                    },
+                    value
+                );
+            }
+        }
+
+        protected string PrecompiledHeaderCompileAs
+        {
+            get => PropertyOrNull<string>("PrecompiledHeaderCompileAs");
+            set
+            {
+                UpdateSwitch(
+                    "PrecompiledHeaderCompileAs",
+                    new ToolSwitch(ToolSwitchType.String)
+                    {
+                        DisplayName = "Compile Precompiled Header As",
+                        Description = "Select compile language option for precompiled header file (-x c-header, -x c++-header).",
+                    },
+                    new Dictionary<string, string>
+                    {
+                        { "CompileAsC", "-x c-header" },
+                        { "CompileAsCpp", "-x c++-header" },
+                    },
+                    value
+                );
+            }
+        }
+
+        protected string CompileAs
+        {
+            get => PropertyOrNull<string>("CompileAs");
+            set
+            {
+                UpdateSwitch(
+                    "CompileAs",
+                    new ToolSwitch(ToolSwitchType.String)
+                    {
+                        DisplayName = "Compile As",
+                        Description = "Select compile language option for .c and .cpp files.  'Default' will detect based on .c or .cpp extention. (-x c, -x c++)",
+                    },
+                    new Dictionary<string, string>
+                    {
+                        { "Default", "" },
+                        { "CompileAsC", "-x c" },
+                        { "CompileAsCpp", "-x c++" },
+                        { "CompileAsAsm", "-x assembler-with-cpp" },
+                    },
+                    value
+                );
+            }
+        }
+
+        protected string[] ForcedIncludeFiles
+        {
+            get => PropertyOrNull<string[]>("ForcedIncludeFiles");
+            set
+            {
+                UpdateSwitch(
+                    "ForcedIncludeFiles",
+                    new ToolSwitch(ToolSwitchType.StringArray)
+                    {
+                        DisplayName = "Forced Include Files",
+                        Description = "one or more forced include files.     (-include [name])",
+                        SwitchValue = "-include ",
+                    },
+                    value
+                );
+            }
+        }
+
+        private string firstReadTLog { get => $"{typeof(ZigCompile).FullName}.read.1.tlog"; }
+        protected override string[] ReadTLogNames
+        {
+            get => new string[] {
+                    firstReadTLog,
+                    $"{SubTool}.read.*.tlog",
+                    $"{SubTool}.*.read.*.tlog",
+                    $"{SubTool}-*.read.*.tlog",
+                    $"{SubTool}.delete.*.tlog",
+                    $"{SubTool}.*.delete.*.tlog",
+                    $"{SubTool}-*.delete.*.tlog"};
+        }
+
+        private string firstWriteTLog { get => $"{typeof(ZigCompile).FullName}.write.1.tlog"; }
+        protected override string[] WriteTLogNames
+        {
+            get => new string[] {
+                    firstWriteTLog,
+                    $"{SubTool}.write.*.tlog",
+                    $"{SubTool}.*.write.*.tlog",
+                    $"{SubTool}-*.write.*.tlog" };
+        }
+
+        protected override string CommandTLogName
+        {
+            get => $"{SubTool}.command.1.tlog";
+        }
+
+        protected override bool TrackReplaceFile { get => true; }
+
+        protected override void RemoveTaskSpecificInputs(CanonicalTrackedInputFiles compactInputs)
+        {
+            if (base.IsPropertySet("PrecompiledHeader") && this.PrecompiledHeader != "Create")
+            {
+                return;
+            }
+            if (base.IsPropertySet("ObjectFileName"))
+            {
+                string objectFileName = this.ObjectFileName;
+                TaskItem taskItem = new TaskItem(objectFileName);
+                compactInputs.RemoveDependencyFromEntry(this.Sources, taskItem);
+                return;
+            }
+        }
+
+        protected override int ExecuteTool(string pathToTool, string responseFileCommands, string commandLineCommands)
+        {
+            foreach (ITaskItem taskItem in base.SourcesCompiled)
+            {
+                Log.LogMessage(MessageImportance.High, Path.GetFileName(taskItem.ItemSpec), Array.Empty<object>());
+            }
+
+            var firstReadTlogPath = Path.Combine(TrackerIntermediateDirectory, firstReadTLog);
+            var firstWriteTlogPath = Path.Combine(TrackerIntermediateDirectory, firstWriteTLog);
+
+            for (int attempt = 0; attempt < 30; attempt++)
+            {
+                if (!File.Exists(firstReadTlogPath))
+                {
+                    try
+                    {
+                        using (File.Create(firstReadTlogPath))
+                        {
+                        }
+                    }
+                    catch (IOException)
+                    {
+                        Thread.Sleep(50);
+                        continue;
+                    }
+                }
+
+                if (!File.Exists(firstWriteTlogPath))
+                {
+                    try
+                    {
+                        using (File.Create(firstWriteTlogPath))
+                        {
+                        }
+                    }
+                    catch (IOException)
+                    {
+                        Thread.Sleep(50);
+                        continue;
+                    }
+                }
+
+                break;
+            }
+
+            errorListRegexList.Add(clangMessageRegex);
+            return base.ExecuteTool(pathToTool, responseFileCommands, commandLineCommands);
+        }
+
+        protected override string GenerateResponseFileCommandsExceptSwitches(string[] switchesToRemove, CommandLineFormat format = CommandLineFormat.ForBuildLog, EscapeFormat escapeFormat = EscapeFormat.EscapeTrailingSlash)
+        {
+            var text = base.GenerateResponseFileCommandsExceptSwitches(switchesToRemove, format, EscapeFormat.EscapeTrailingSlash);
+            text = FindBackSlashInPath.Replace(text, "\\\\");
+            return text;
+        }
+
+        protected static Regex clangMessageRegex = new Regex("^\\s*(?<FILENAME>[^:]*):(?<LINE>\\d*):(?<COLUMN>\\d*)\\s*:\\s*(?<CATEGORY>fatal error|error|warning|note):(?<TEXT>.*)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     }
 }
