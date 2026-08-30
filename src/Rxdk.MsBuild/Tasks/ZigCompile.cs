@@ -10,9 +10,9 @@ using System.Threading;
 
 namespace Rxdk.MsBuild.Tasks
 {
-    public class ZigCompile : ZigToolTask
+    protected override class ZigCompile : ZigToolTask
     {
-        public ZigCompile()
+        protected override ZigCompile()
         {
             switchOrderList.AddRange(new string[] {
                 "SubTool",
@@ -50,7 +50,7 @@ namespace Rxdk.MsBuild.Tasks
 
         protected override string SubTool => "cc";
 
-        protected string Optimization
+        protected override virtual string Optimization
         {
             get => PropertyOrNull<string>("Optimization");
             set
@@ -123,7 +123,7 @@ namespace Rxdk.MsBuild.Tasks
             "-Wno-deprecated-enum-enum-conversion",
         ]);
 
-        protected string DebugInfo
+        protected override virtual string DebugInfo
         {
             get => PropertyOrNull<string>("DebugInfo");
             set => UpdateSwitch(
@@ -144,7 +144,7 @@ namespace Rxdk.MsBuild.Tasks
             );
         }
 
-        protected string[] AdditionalIncludeDirectories
+        protected override virtual string[] AdditionalIncludeDirectories
         {
             get => PropertyOrNull<string[]>("AdditionalIncludeDirectories");
             set => UpdateSwitch(
@@ -159,7 +159,7 @@ namespace Rxdk.MsBuild.Tasks
             );
         }
 
-        protected string ObjectFileName
+        protected override virtual string ObjectFileName
         {
             get => PropertyOrNull<string>("ObjectFileName");
             set
@@ -175,7 +175,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected string WarningLevel
+        protected override virtual string WarningLevel
         {
             get => PropertyOrNull<string>("WarningLevel");
             set
@@ -199,7 +199,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected bool TreatWarningAsError
+        protected override virtual bool TreatWarningAsError
         {
             get => PropertyOrNull<bool>("TreatWarningAsError");
             set
@@ -217,7 +217,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected string[] DisableSpecificWarnings
+        protected override virtual string[] DisableSpecificWarnings
         {
             get => PropertyOrNull<string[]>("DisableSpecificWarnings");
             set
@@ -235,7 +235,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected bool Verbose
+        protected override virtual bool Verbose
         {
             get => PropertyOrNull<bool>("Verbose");
             set
@@ -253,7 +253,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected string TrackerLogDirectory
+        protected override virtual string TrackerLogDirectory
         {
             get => PropertyOrNull<string>("TrackerLogDirectory");
             set
@@ -290,7 +290,7 @@ namespace Rxdk.MsBuild.Tasks
         //
         //}
 
-        protected bool OmitFramePointers
+        protected override virtual bool OmitFramePointers
         {
             get => PropertyOrNull<bool>("OmitFramePointers");
             set
@@ -309,7 +309,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected bool FunctionLevelLinking
+        protected override virtual bool FunctionLevelLinking
         {
             get => PropertyOrNull<bool>("FunctionLevelLinking");
             set
@@ -327,7 +327,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected bool DataLevelLinking
+        protected override virtual bool DataLevelLinking
         {
             get => PropertyOrNull<bool>("DataLevelLinking");
             set
@@ -345,7 +345,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected bool BufferSecurityCheck
+        protected override virtual bool BufferSecurityCheck
         {
             get => PropertyOrNull<bool>("BufferSecurityCheck");
             set
@@ -363,7 +363,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected bool RuntimeTypeInfo
+        protected override virtual bool RuntimeTypeInfo
         {
             get => PropertyOrNull<bool>("RuntimeTypeInfo");
             set
@@ -382,7 +382,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected string CLanguageStandard
+        protected override virtual string CLanguageStandard
         {
             get => PropertyOrNull<string>("CLanguageStandard");
             set
@@ -414,7 +414,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected string CppLanguageStandard
+        protected override virtual string CppLanguageStandard
         {
             get => PropertyOrNull<string>("CppLanguageStandard");
             set
@@ -449,7 +449,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected string[] PreprocessorDefinitions
+        protected override virtual string[] PreprocessorDefinitions
         {
             get => PropertyOrNull<string[]>("PreprocessorDefinitions");
             set
@@ -467,7 +467,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected string[] UndefinePreprocessorDefinitions
+        protected override virtual string[] UndefinePreprocessorDefinitions
         {
             get => PropertyOrNull<string[]>("UndefinePreprocessorDefinitions");
             set
@@ -484,7 +484,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected bool UndefineAllPreprocessorDefinitions
+        protected override virtual bool UndefineAllPreprocessorDefinitions
         {
             get => PropertyOrNull<bool>("UndefineAllPreprocessorDefinitions");
             set
@@ -502,7 +502,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected string PrecompiledHeader
+        protected override virtual string PrecompiledHeader
         {
             get => PropertyOrNull<string>("PrecompiledHeader");
             set
@@ -524,7 +524,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected string PrecompiledHeaderFile
+        protected override virtual string PrecompiledHeaderFile
         {
             get => PropertyOrNull<string>("PrecompiledHeaderFile");
             set
@@ -541,7 +541,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected string PrecompiledHeaderOutputFileDirectory
+        protected override virtual string PrecompiledHeaderOutputFileDirectory
         {
             get => PropertyOrNull<string>("PrecompiledHeaderOutputFileDirectory");
             set
@@ -558,7 +558,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected string PrecompiledHeaderCompileAs
+        protected override virtual string PrecompiledHeaderCompileAs
         {
             get => PropertyOrNull<string>("PrecompiledHeaderCompileAs");
             set
@@ -580,7 +580,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected string CompileAs
+        protected override virtual string CompileAs
         {
             get => PropertyOrNull<string>("CompileAs");
             set
@@ -604,7 +604,7 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected string[] ForcedIncludeFiles
+        protected override virtual string[] ForcedIncludeFiles
         {
             get => PropertyOrNull<string[]>("ForcedIncludeFiles");
             set
@@ -681,7 +681,7 @@ namespace Rxdk.MsBuild.Tasks
             {
                 if (!File.Exists(firstReadTlogPath))
                 {
-                    try
+                    try 
                     {
                         using (File.Create(firstReadTlogPath))
                         {
