@@ -67,7 +67,6 @@ public static class XboxDeploy
                 foreach (var name in ListFilesMatching(localDir, pattern))
                 {
                     var dest = $@"{remoteDir}\{name}";
-                    if (!opts.Quiet) opts.Log?.Invoke($"{name} -> {dest}");
                     await XbcpCopyAsync(xbcp, Path.Combine(localDir, name), dest, consoleSwitch, incremental, opts.Log, ct);
                     sent.Add(name);
                 }
@@ -82,7 +81,6 @@ public static class XboxDeploy
             foreach (var entry in deployFiles)
             {
                 var dest = $@"{remoteDir}\{entry.RelativeDest.Replace('/', '\\')}";
-                if (!opts.Quiet) opts.Log?.Invoke($"{entry.Source} -> {dest}");
                 await XbcpCopyAsync(xbcp, entry.Source, dest, consoleSwitch, incremental, opts.Log, ct);
             }
 
@@ -137,14 +135,16 @@ public static class XboxDeploy
     private static async Task XbcpCopyAsync(
         string xbcp, string localFile, string remoteDest, string? console, bool incremental, Action<string>? log, CancellationToken ct)
     {
-        // -y overwrite, -t create dest dir, -q quiet; -d = copy only if the source is newer than the
-        // console copy (skips up-to-date files) — omitted for a forced full copy.
-        var args = new List<string> { "-y", "-t", "-q" };
+        // -y overwrite, -t create dest dir; -d = copy only if the source is newer than the console
+        // copy (skips up-to-date files) — omitted for a forced full copy. NOT -q: xbcp prints one
+        // concise "copy/skip <dest>" line per file, which is the deploy's per-file log now (the
+        // engine no longer pre-logs each file). Suppress the "$ xbcp ..." command echo too.
+        var args = new List<string> { "-y", "-t" };
         if (incremental) args.Add("-d");
         if (console is not null) { args.Add("-x"); args.Add(console); }
         args.Add(localFile);
         args.Add(remoteDest);
-        var r = await ProcessRunner.RunStreamedAsync(xbcp, args, log, ct: ct);
+        var r = await ProcessRunner.RunStreamedAsync(xbcp, args, log, ct: ct, echoCommand: false);
         if (!r.Success)
             throw new InvalidOperationException($"xbcp failed copying {Path.GetFileName(localFile)} (exit {r.ExitCode})");
     }

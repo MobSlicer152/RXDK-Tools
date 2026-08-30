@@ -125,6 +125,7 @@ public sealed class XbCopyService
             return;
         }
 
+        var reported = false;
         if (PathExists(dst))
         {
             if (_options.CopyIfNewer)
@@ -136,12 +137,8 @@ public sealed class XbCopyService
                 var srcTime = GetChangeTime(src);
                 var dstTime = GetChangeTime(dst);
                 var sourceNewer = (srcTime - dstTime).TotalSeconds > 2.0;
-                if (_options.Verbose)
-                    Console.WriteLine(
-                        $"  {(sourceNewer ? "copy" : "skip")} {dst.DisplayPath}  " +
-                        $"(local {srcTime:yyyy-MM-dd HH:mm:ss}Z, kit {dstTime:yyyy-MM-dd HH:mm:ss}Z)");
-                else
-                    Console.WriteLine($"  {(sourceNewer ? "copy" : "skip")} {dst.DisplayPath}");
+                ReportAction(sourceNewer ? "copy" : "skip", dst, srcTime, dstTime);
+                reported = true;
                 if (!sourceNewer)
                 {
                     _anySuccess = true;
@@ -166,12 +163,29 @@ public sealed class XbCopyService
                 EnsureDirectory(parent);
         }
 
-        if (!_options.Quiet)
-            Console.WriteLine($"{src.DisplayPath} => {dst.DisplayPath}");
+        if (!reported)
+            ReportAction("copy", dst, null, null);
 
         TransferFile(src, dst);
         CopyAttributes(src, dst);
         _anySuccess = true;
+    }
+
+    /// <summary>
+    /// Print one concise per-file action line ("copy"/"skip" + destination), suppressed by -q.
+    /// With -v (and both times known, i.e. the -d comparison) it also shows the compared local
+    /// and kit change-times, which is how you tell whether the kit clock is causing re-copies.
+    /// </summary>
+    private void ReportAction(string verb, XbPath dst, DateTime? local, DateTime? kit)
+    {
+        if (_options.Quiet)
+            return;
+        if (_options.Verbose && local is not null && kit is not null)
+            Console.WriteLine(
+                $"  {verb} {dst.DisplayPath}  " +
+                $"(local {local:yyyy-MM-dd HH:mm:ss}Z, kit {kit:yyyy-MM-dd HH:mm:ss}Z)");
+        else
+            Console.WriteLine($"  {verb} {dst.DisplayPath}");
     }
 
     private void TransferFile(XbPath src, XbPath dst)
