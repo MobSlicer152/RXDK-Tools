@@ -13,6 +13,7 @@ public sealed class XbCopyOptions
     public bool ForceReplace { get; set; }
     public bool ForceReadOnly { get; set; }
     public bool CopyIfNewer { get; set; }
+    public bool Verbose { get; set; }
     public bool SkipEmptyDirs { get; set; }
     public bool EnsureDestDir { get; set; }
     public XbRecurseOptions Recurse { get; } = new();

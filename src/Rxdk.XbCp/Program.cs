@@ -15,6 +15,7 @@ internal static class Program
     private static readonly Option<bool> YesOption = new(["/y", "-y"]) { Description = "Overwrite without prompting." };
     private static readonly Option<bool> ForceOption = new(["/f", "-f"]) { Description = "Force overwrite read-only files." };
     private static readonly Option<bool> NewerOption = new(["/d", "-d"]) { Description = "Copy only if source is newer." };
+    private static readonly Option<bool> VerboseOption = new(["/v", "-v", "--verbose"]) { Description = "With -d, print the compared local/kit timestamps for each file." };
     private static readonly Option<bool> EmptyOption = new(["/e", "-e"]) { Description = "Skip empty directories." };
     private static readonly Option<bool> CreateDestOption = new(["/t", "-t"]) { Description = "Create destination directory if missing." };
     private static readonly Option<bool> RecursiveOption = new(["/r", "-r"]) { Description = "Recursive copy." };
@@ -37,6 +38,7 @@ internal static class Program
             YesOption,
             ForceOption,
             NewerOption,
+            VerboseOption,
             EmptyOption,
             CreateDestOption,
             RecursiveOption,
@@ -83,6 +85,7 @@ internal static class Program
                 ForceReplace = parse.GetValueForOption(YesOption),
                 ForceReadOnly = parse.GetValueForOption(ForceOption),
                 CopyIfNewer = parse.GetValueForOption(NewerOption),
+                Verbose = parse.GetValueForOption(VerboseOption),
                 SkipEmptyDirs = parse.GetValueForOption(EmptyOption),
                 EnsureDestDir = parse.GetValueForOption(CreateDestOption),
             };
