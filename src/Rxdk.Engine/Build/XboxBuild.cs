@@ -159,6 +159,10 @@ public static class XboxBuild
         // would otherwise be treated as a linker input and -c would silently emit no object.
         common.AddRange(new[] { "-x", isCpp ? "c++" : "c" });
         common.AddRange(new[] { "-c", source, $"-o{obj}" });
+        // Emit a Make-style header dependency list next to the object (<obj>.d). The incremental
+        // build (IsObjUpToDate) reads it to decide whether a later build may skip recompiling this
+        // TU. -MD writes the deps as a side effect without suppressing the compile itself.
+        common.AddRange(new[] { "-MD", "-MF", obj + ".d" });
 
         var toolArgs = new List<string>();
         if (isCpp)
@@ -608,13 +612,15 @@ public static class XboxBuild
         return outList;
     }
 
-    private static async Task<(List<string> objs, bool usesCpp)> CompileProjectSourcesAsync(
+    private static async Task<(List<string> objs, bool usesCpp, bool anyRecompiled)> CompileProjectSourcesAsync(
         string projectRoot, RxdkProjectManifest m, string zig, string outDir,
         IReadOnlyList<string> includeArgs, IReadOnlyList<string> defineArgs,
         RxdkOptimizeMode optimize, Action<string>? log, CancellationToken ct)
     {
         var objs = new List<string>();
         var usesCpp = false;
+        var anyRecompiled = false;
+        var incremental = m.Incremental ?? true;
         foreach (var relSrc in m.Sources ?? new())
         {
             var src = Path.Combine(projectRoot, relSrc.Replace('/', Path.DirectorySeparatorChar));
@@ -623,8 +629,19 @@ public static class XboxBuild
             var ext = Path.GetExtension(src).ToLowerInvariant();
             var isCpp = ext is ".cpp" or ".cxx";
             if (isCpp) usesCpp = true;
+
+            // Incremental: skip the compile when the object is already newer than the source and
+            // every header it pulled in on the previous build (recorded in <obj>.d). A missing
+            // object or depfile, or any newer input, forces the recompile.
+            if (incremental && IsObjUpToDate(src, obj))
+            {
+                log?.Invoke($"Up to date {obj}");
+                objs.Add(obj);
+                continue;
+            }
+
             await ZigCompileAsync(zig, src, obj, includeArgs, defineArgs, isCpp,
-                                  m.EffectiveCppStandard, m.Exceptions ?? false, optimize, log, ct);
+                                  m.EffectiveCppStandard, m.Exceptions ?? true, optimize, log, ct);
             // A compiler can exit 0 and still write nothing (see the -x note above). Catch that
             // here, where we still know which source it was, rather than at link time.
             if (!File.Exists(obj))
@@ -632,8 +649,99 @@ public static class XboxBuild
                     $"Compiler reported success but produced no object for {src} (expected {obj}).");
             log?.Invoke($"Compiled {obj}");
             objs.Add(obj);
+            anyRecompiled = true;
         }
-        return (objs, usesCpp);
+        return (objs, usesCpp, anyRecompiled);
+    }
+
+    /// <summary>
+    /// True when <paramref name="obj"/> exists and is at least as new as its source and every header
+    /// recorded in the sidecar depfile (<c><paramref name="obj"/>.d</c>), so recompiling it would
+    /// reproduce the same object. A missing object or depfile, a vanished dependency, or any input
+    /// newer than the object returns false (recompile).
+    /// </summary>
+    private static bool IsObjUpToDate(string src, string obj)
+    {
+        if (!File.Exists(obj)) return false;
+        var objTime = File.GetLastWriteTimeUtc(obj);
+        if (File.GetLastWriteTimeUtc(src) > objTime) return false;
+
+        var depFile = obj + ".d";
+        if (!File.Exists(depFile)) return false; // no recorded deps -> can't prove fresh
+        foreach (var dep in ParseDepfile(depFile))
+        {
+            // A dependency that no longer exists means a header was moved/deleted: recompile so the
+            // failure (or the newly-resolved header) is seen now, not silently skipped.
+            if (!File.Exists(dep)) return false;
+            if (File.GetLastWriteTimeUtc(dep) > objTime) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Parse a clang/Make-style depfile into its prerequisite paths. The format is
+    /// <c>target: dep1 dep2 \</c> with line continuations, spaces inside a path escaped as
+    /// <c>\ </c>, and the target (everything up to the first unescaped <c>:</c>) dropped.
+    /// </summary>
+    private static IEnumerable<string> ParseDepfile(string depFile)
+    {
+        string text;
+        try { text = File.ReadAllText(depFile); }
+        catch { yield break; }
+
+        // Join line continuations, then drop the "target:" prefix. The target is itself a Windows
+        // path, so its drive-letter colon ("C:\...") must NOT be mistaken for the rule separator:
+        // split on the first colon that is followed by whitespace (or end), which is the real
+        // "target: deps" colon. clang emits a single rule, so the first such colon is enough.
+        text = text.Replace("\\\r\n", " ").Replace("\\\n", " ").Replace("\r", " ").Replace("\n", " ");
+        var colon = -1;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] == ':' && (i + 1 >= text.Length || text[i + 1] == ' ' || text[i + 1] == '\t'))
+            {
+                colon = i;
+                break;
+            }
+        }
+        if (colon >= 0) text = text.Substring(colon + 1);
+
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (c == '\\' && i + 1 < text.Length && text[i + 1] == ' ')
+            {
+                sb.Append(' '); // escaped space inside a path
+                i++;
+            }
+            else if (c == ' ' || c == '\t')
+            {
+                if (sb.Length > 0) { yield return sb.ToString(); sb.Clear(); }
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+        if (sb.Length > 0) yield return sb.ToString();
+    }
+
+    /// <summary>
+    /// True when <paramref name="output"/> exists and is at least as new as every input in
+    /// <paramref name="inputs"/> (each of which must exist). Used to decide whether a link/archive
+    /// step can be skipped: any newer object, library or manifest makes the output stale.
+    /// </summary>
+    private static bool IsOutputFresh(string output, IEnumerable<string> inputs)
+    {
+        if (!File.Exists(output)) return false;
+        var outTime = File.GetLastWriteTimeUtc(output);
+        foreach (var input in inputs)
+        {
+            if (string.IsNullOrEmpty(input)) continue;
+            if (!File.Exists(input)) return false;
+            if (File.GetLastWriteTimeUtc(input) > outTime) return false;
+        }
+        return true;
     }
 
     /// <summary>Build one library project to a static .lib and return its path.</summary>
@@ -657,12 +765,20 @@ public static class XboxBuild
         var defineArgs = ProjectDefineArgs(manifest);
 
         log?.Invoke($"== Building library {manifest.Name} ==");
-        var (objs, _) = await CompileProjectSourcesAsync(
+        var (objs, _, anyRecompiled) = await CompileProjectSourcesAsync(
             libRoot, manifest, zig, outDir, includeArgs, defineArgs, optimize, log, ct);
         if (objs.Count == 0)
             throw new InvalidOperationException($"Library {manifest.Name} has no sources to archive");
 
         var lib = Path.Combine(outDir, $"{manifest.Name}.lib");
+        // Incremental: if no object was recompiled and the archive is already newer than all of
+        // them, it is current -- skip the re-archive so a dependent build can also short-circuit.
+        if ((manifest.Incremental ?? true) && !anyRecompiled && File.Exists(lib)
+            && IsOutputFresh(lib, objs))
+        {
+            log?.Invoke($"Up to date {lib}");
+            return lib;
+        }
         if (File.Exists(lib)) File.Delete(lib);
         var arArgs = new List<string> { "ar", "rcs", lib };
         arArgs.AddRange(objs);
@@ -799,7 +915,7 @@ public static class XboxBuild
             var projectDefines = ProjectDefineArgs(manifest);
 
             log?.Invoke($"== Building executable {projectName} ==");
-            var (objs, _) = await CompileProjectSourcesAsync(
+            var (objs, _, anyRecompiled) = await CompileProjectSourcesAsync(
                 projectRoot, manifest, zig, outDir, projectIncludeArgs, projectDefines, optimize, log, ct);
 
             if (opts.CompileOnly)
@@ -840,6 +956,37 @@ public static class XboxBuild
                     throw new InvalidOperationException(
                         $"Missing library: {libName}.lib under sdk/lib - run RXDK SDK install");
                 linkLibs.Add(resolved);
+            }
+
+            // Incremental link/package skip: when no object was recompiled, the final product
+            // (ISO, or the XBE when createIso=false, or the DXT) may already be current. It is stale
+            // only if a linked library, an embedded/deployed asset, or the manifest itself is newer
+            // than it -- so gather those as inputs and short-circuit the link + imagebld + pack tail
+            // when the product out-dates them all. (A recompiled object always forces the relink.)
+            if ((manifest.Incremental ?? true) && !anyRecompiled)
+            {
+                var linkInputs = new List<string>(objs);
+                foreach (var l in linkLibs)
+                    if (!l.StartsWith("-", StringComparison.Ordinal)) linkInputs.Add(l);
+                linkInputs.Add(opts.ManifestPath ?? Path.Combine(projectRoot, RxdkManifestLoader.ManifestFileName));
+                foreach (var item in manifest.Embed ?? new())
+                    if (!string.IsNullOrEmpty(item.Path))
+                        linkInputs.Add(Path.Combine(projectRoot, item.Path.Replace('/', Path.DirectorySeparatorChar)));
+                foreach (var e in PackXiso.ResolveDeployPaths(projectRoot, manifest.DeployPaths))
+                    linkInputs.Add(e.Source);
+
+                var product = isDxt
+                    ? Path.GetFullPath(Path.Combine(outDir, $"{projectName}.dxt"))
+                    : (manifest.CreateIso ?? true)
+                        ? Path.GetFullPath(Path.Combine(outDir, "XISO", $"{projectName}.iso"))
+                        : Path.GetFullPath(Path.Combine(outDir, $"{projectName}.xbe"));
+
+                if (IsOutputFresh(product, linkInputs))
+                {
+                    log?.Invoke($"Up to date {product}");
+                    log?.Invoke($"OK: {projectName} build up to date -> {outDir}");
+                    return new BuildResult(true, outDir);
+                }
             }
 
             var exe = Path.GetFullPath(Path.Combine(outDir, $"{projectName}.exe"));

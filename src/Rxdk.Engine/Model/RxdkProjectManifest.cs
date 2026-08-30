@@ -163,14 +163,25 @@ public sealed class RxdkProjectManifest
     public string? CppStandard { get; set; }
 
     /// <summary>
-    /// Compile C++ sources with exception support (-fexceptions). Omitted = false, i.e.
-    /// -fno-exceptions, which is what a title normally wants on a 64 MB console.
+    /// Compile C++ sources with exception support (-fexceptions). Omitted = true (on): RXDK's
+    /// C++ runtime supports real DWARF/Itanium exceptions on the console, so titles get them by
+    /// default. Set to false for -fno-exceptions when a title wants to shave the EH tables on a
+    /// 64 MB console and never throws.
     ///
-    /// The runtime side is already in place either way: libcpp.lib bundles libunwind and the
-    /// link brackets .eh_frame with the two marker objects it needs. This only decides whether
-    /// the title's own code may throw.
+    /// The runtime side is in place either way: libcpp.lib bundles libunwind, which recovers the
+    /// merged .eh_frame from the PE section table at runtime. This flag only decides whether the
+    /// title's own code may throw.
     /// </summary>
     public bool? Exceptions { get; set; }
+
+    /// <summary>
+    /// Incremental compilation. Omitted = true (on): a source is recompiled only when its object is
+    /// missing or older than the source or any header it includes (tracked via clang <c>-MD</c>
+    /// depfiles), and the link / imagebld / ISO steps are skipped when nothing recompiled and the
+    /// outputs are still newer than every object, linked library and the manifest. Set false to
+    /// force a full recompile + relink on every build.
+    /// </summary>
+    public bool? Incremental { get; set; }
 
     /// <summary>
     /// Per-configuration overrides keyed by config name (e.g. "Debug", "Release"). When present the
@@ -231,6 +242,7 @@ public sealed class RxdkProjectManifest
             Defines = over.Defines ?? Defines,
             CppStandard = over.CppStandard ?? CppStandard,
             Exceptions = over.Exceptions ?? Exceptions,
+            Incremental = over.Incremental ?? Incremental,
             // Resolved: no nested configurations remain.
             Configurations = null,
             DefaultConfiguration = null,
