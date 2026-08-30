@@ -53,7 +53,8 @@ namespace Rxdk.MsBuild.Tasks
         protected string Optimization
         {
             get => PropertyOrNull<string>("Optimization");
-            set =>
+            set
+            {
                 UpdateSwitch(
                     "Optimization",
                     new ToolSwitch(ToolSwitchType.String)
@@ -72,9 +73,10 @@ namespace Rxdk.MsBuild.Tasks
                     },
                     value
                 );
+            }
         }
 
-        protected override string AlwaysAppend => JoinSwitches(new string[] {
+        protected override string AlwaysAppend => JoinSwitches([
             "-ffreestanding", "-fno-stack-protector", "-fms-extensions", "-fms-compatibility",
             "-nostdinc", "-include", "picolibc.h", "-march=pentium3",
             // Every Xbox title is built with _XBOX/XBOX defined (the XDK did this); a lot of
@@ -119,7 +121,7 @@ namespace Rxdk.MsBuild.Tasks
             "-Wno-multichar",
             "-Wno-unused-command-line-argument",
             "-Wno-deprecated-enum-enum-conversion",
-        });
+        ]);
 
         protected string DebugInfo
         {
@@ -714,13 +716,18 @@ namespace Rxdk.MsBuild.Tasks
             return base.ExecuteTool(pathToTool, responseFileCommands, commandLineCommands);
         }
 
-        protected override string GenerateResponseFileCommandsExceptSwitches(string[] switchesToRemove, CommandLineFormat format = CommandLineFormat.ForBuildLog, EscapeFormat escapeFormat = EscapeFormat.EscapeTrailingSlash)
+        protected override string GenerateResponseFileCommandsExceptSwitches(string[] switchesToRemove,
+                                                                             CommandLineFormat format = CommandLineFormat.ForBuildLog,
+                                                                             EscapeFormat escapeFormat = EscapeFormat.EscapeTrailingSlash)
         {
             var text = base.GenerateResponseFileCommandsExceptSwitches(switchesToRemove, format, EscapeFormat.EscapeTrailingSlash);
             text = FindBackSlashInPath.Replace(text, "\\\\");
             return text;
         }
 
-        protected static Regex clangMessageRegex = new Regex("^\\s*(?<FILENAME>[^:]*):(?<LINE>\\d*):(?<COLUMN>\\d*)\\s*:\\s*(?<CATEGORY>fatal error|error|warning|note):(?<TEXT>.*)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        protected static Regex clangMessageRegex = new Regex(
+            "^\\s*(?<FILENAME>[^:]*):(?<LINE>\\d*):(?<COLUMN>\\d*)\\s*:\\s*(?<CATEGORY>fatal error|error|warning|note):(?<TEXT>.*)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled
+        );
     }
 }
