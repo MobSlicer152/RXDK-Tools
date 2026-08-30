@@ -91,7 +91,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rxdk.Cli", "src\Rxdk.Cli\Rx
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rxdk.Dap", "src\Rxdk.Dap\Rxdk.Dap.csproj", "{C110E73E-DB58-4279-9929-0EC4711E15E2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rxdk.MsBuild", "Rxdk.MsBuild\Rxdk.MsBuild.csproj", "{F253AF4D-0CF3-4108-99EB-2AD9752CC608}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rxdk.MsBuild", "src\Rxdk.MsBuild\Rxdk.MsBuild.csproj", "{F253AF4D-0CF3-4108-99EB-2AD9752CC608}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -57,10 +57,14 @@
   <ItemGroup>
     <Compile Include="Tasks\RxdkToolTask.cs" />
     <Compile Include="Tasks\ZigCompile.cs" />
+    <Compile Include="Tasks\ZigLd.cs" />
     <Compile Include="Tasks\ZigToolTask.cs" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="Properties\" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Generate-Targets.ps1" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
