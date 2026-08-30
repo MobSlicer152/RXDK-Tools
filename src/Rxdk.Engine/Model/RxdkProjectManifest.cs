@@ -175,6 +175,15 @@ public sealed class RxdkProjectManifest
     public bool? Exceptions { get; set; }
 
     /// <summary>
+    /// Incremental compilation. Omitted = true (on): a source is recompiled only when its object is
+    /// missing or older than the source or any header it includes (tracked via clang <c>-MD</c>
+    /// depfiles), and the link / imagebld / ISO steps are skipped when nothing recompiled and the
+    /// outputs are still newer than every object, linked library and the manifest. Set false to
+    /// force a full recompile + relink on every build.
+    /// </summary>
+    public bool? Incremental { get; set; }
+
+    /// <summary>
     /// Per-configuration overrides keyed by config name (e.g. "Debug", "Release"). When present the
     /// build resolves one configuration via <see cref="ResolveConfiguration"/>: the chosen config's
     /// fields win, falling back to this (top-level) manifest for anything the config omits. A flat
@@ -233,6 +242,7 @@ public sealed class RxdkProjectManifest
             Defines = over.Defines ?? Defines,
             CppStandard = over.CppStandard ?? CppStandard,
             Exceptions = over.Exceptions ?? Exceptions,
+            Incremental = over.Incremental ?? Incremental,
             // Resolved: no nested configurations remain.
             Configurations = null,
             DefaultConfiguration = null,
