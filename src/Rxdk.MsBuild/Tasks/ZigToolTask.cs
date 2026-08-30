@@ -1,9 +1,11 @@
 ﻿using Microsoft.Build.CPPTasks;
 using Microsoft.Build.Framework;
+using Rxdk.Engine.Bootstrap;
+using Rxdk.Engine.Platform;
 using System;
 using System.Collections;
+using System.IO;
 using System.Text;
-using System.Xml;
 
 namespace Rxdk.MsBuild.Tasks
 {
@@ -17,16 +19,17 @@ namespace Rxdk.MsBuild.Tasks
         {
             switchOrderList = new ArrayList()
             {
-                "ToolName",
                 "SubTool",
                 "Target"
             };
         }
 
-        protected override string ToolName => "zig.exe";
+        protected override string ToolName =>
+            ZigRuntime.ResolveZigExecutableAsync().GetAwaiter().GetResult() ??
+                throw new FileNotFoundException("Zig not found.");
         protected abstract string SubTool { get; }
         protected string Target => "-target x86-windows-gnu";
-        
+
         [Required]
         protected virtual ITaskItem[] Sources
         {
