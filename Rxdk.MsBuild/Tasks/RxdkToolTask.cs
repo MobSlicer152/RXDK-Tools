@@ -89,8 +89,10 @@ namespace Rxdk.MsBuild.Tasks
                     break;
                 case ToolSwitchType.String:
                 case ToolSwitchType.File:
-                case ToolSwitchType.Directory:
                     toolSwitch.Value = (string)value;
+                    break;
+                case ToolSwitchType.Directory:
+                    toolSwitch.Value = EnsureTrailingSlash((string)value);
                     break;
                 case ToolSwitchType.StringArray:
                 case ToolSwitchType.StringPathArray:

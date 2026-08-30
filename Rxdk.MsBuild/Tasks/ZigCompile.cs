@@ -29,7 +29,9 @@ namespace Rxdk.MsBuild.Tasks
                 "TrackerLogDirectory",
                 "StrictAliasing",
                 "OmitFramePointers",
-                "BufferSecurityCheck",
+                "FunctionLevelLinking",
+                "DataLevelLinking",
+                //"BufferSecurityCheck",
                 "RuntimeTypeInfo",
                 "CLanguageStandard",
                 "CppLanguageStandard",
@@ -145,26 +147,352 @@ namespace Rxdk.MsBuild.Tasks
                     DisplayName = "Additional Include Directories",
                     Description = "Specifies one or more directories to add to the include path; separate with semi-colons if more than one. (-I[path]).",
                     SwitchValue = "-I ",
-
                 },
                 value
             );
         }
 
-        protected string ObjectFileName { get => PropertyOrNull<string>("ObjectFileName"); }
-        protected string WarningLevel { get => PropertyOrNull<string>("WarningLevel"); }
-        protected bool TreatWarningAsError { get => PropertyOrNull<bool>("TreatWarningAsError"); }
-        protected string[] DisableSpecificWarnings { get => PropertyOrNull<string[]>("DisableSpecificWarnings"); }
-        protected bool Verbose { get => PropertyOrNull<bool>("Verbose"); }
-        protected string TrackerLogDirectory { get => PropertyOrNull<string>("TrackerLogDirectory"); }
-        protected bool StrictAliasing { get => PropertyOrNull<bool>("StrictAliasing"); }
-        protected bool OmitFramePointers { get => PropertyOrNull<bool>("OmitFramePointers"); }
-        protected bool BufferSecurityCheck { get => PropertyOrNull<bool>("BufferSecurityCheck"); }
-        protected bool RuntimeTypeInfo { get => PropertyOrNull<bool>("RuntimeTypeInfo"); }
-        protected string CLanguageStandard { get => PropertyOrNull<string>("CLanguageStandard"); }
-        protected string CppLanguageStandard { get => PropertyOrNull<string>("CppLanguageStandard"); }
-        protected string[] PreprocessorDefinitions { get => PropertyOrNull<string[]>("PreprocessorDefinitions"); }
-        protected string[] UndefinePreprocessorDefinitions { get => PropertyOrNull<string[]>("UndefinePreprocessorDefinitions"); }
-        protected bool UndefineAllPreprocessorDefinitions { get => PropertyOrNull<bool>("UndefineAllPreprocessorDefinitions"); }
+        protected string ObjectFileName
+        {
+            get => PropertyOrNull<string>("ObjectFileName");
+            set
+            {
+                UpdateSwitch("ObjectFileName",
+                    new ToolSwitch(ToolSwitchType.String)
+                    {
+                        DisplayName = "Object File Name",
+                        Description = "Specifies a name to override the default object file name; can be file or directory name. (-o [name]).",
+                        SwitchValue = "-o ",
+                    },
+                    value);
+            }
+        }
+
+        protected string WarningLevel
+        {
+            get => PropertyOrNull<string>("WarningLevel");
+            set
+            {
+                UpdateSwitch(
+                    "WarningLevel",
+                    new ToolSwitch(ToolSwitchType.String)
+                    {
+                        DisplayName = "Warning Level",
+                        Description = "Select how strict you want the compiler to be about code errors.  Other flags should be added directly to Additional Options. (-w, -Wall).",
+                    },
+                    new Dictionary<string, string>
+                    {
+                        {"TurnOffAllWarnings", "-w"},
+                        {"EnableDefaultWarnings", ""},
+                        {"EnableAllWarnings", "-Wall"},
+                        {"EnableExtraWarnings", "-Wall -Wextra"},
+                    },
+                    value
+                );
+            }
+        }
+
+        protected bool TreatWarningAsError
+        {
+            get => PropertyOrNull<bool>("TreatWarningAsError");
+            set
+            {
+                UpdateSwitch(
+                    "TreatWarningAsError",
+                    new ToolSwitch(ToolSwitchType.Boolean)
+                    {
+                        DisplayName = "Treat Warnings As Errors",
+                        Description = "Treats all compiler warnings as errors. For a new project, it may be best to use -Werror in all compilations; resolving all warnings will ensure the fewest possible hard-to-find code defects.",
+                        SwitchValue = "-Werror",
+                    },
+                    value
+                );
+            }
+        }
+
+        protected string[] DisableSpecificWarnings
+        {
+            get => PropertyOrNull<string[]>("DisableSpecificWarnings");
+            set
+            {
+                UpdateSwitch(
+                    "DisableSpecificWarnings",
+                    new ToolSwitch(ToolSwitchType.StringArray)
+                    {
+                        DisplayName = "Disable Specific Warnings",
+                        Description = "Disable specified compiler warnings. (-Wno-[name])",
+                        SwitchValue = "-Wno-",
+                    },
+                    value
+                );
+            }
+        }
+
+        protected bool Verbose
+        {
+            get => PropertyOrNull<bool>("Verbose");
+            set
+            {
+                UpdateSwitch(
+                    "Verbose",
+                    new ToolSwitch(ToolSwitchType.Boolean)
+                    {
+                        DisplayName = "Enable Verbose mode",
+                        Description = "Show commands to run and use verbose output.",
+                        SwitchValue = "-v",
+                    },
+                    value
+                );
+            }
+        }
+
+        protected string TrackerLogDirectory
+        {
+            get => PropertyOrNull<string>("TrackerLogDirectory");
+            set
+            {
+                UpdateSwitch(
+                    "TrackerLogDirectory",
+                    new ToolSwitch(ToolSwitchType.Directory)
+                    {
+                        DisplayName = "Tracker Log Directory",
+                        Description = "Tracker Log Directory.",
+                    },
+                    value
+                );
+            }
+        }
+
+        //protected bool StrictAliasing
+        //{
+        //    get => PropertyOrNull<bool>("StrictAliasing");
+        //    set
+        //    {
+        //        UpdateSwitch(
+        //            "StrictAliasing",
+        //            new ToolSwitch(ToolSwitchType.Boolean)
+        //            {
+        //                DisplayName = "Strict Aliasing",
+        //                Description = "Assume the strictest aliasing rules.  An object of one type will never be assumed to reside at the same address as an object of a different type.",
+        //                SwitchValue = "-fstrict-aliasing",
+        //                ReverseSwitchValue = "-fno-strict-aliasing",
+        //            },
+        //            value
+        //        );
+        //    }
+        //
+        //}
+
+        protected bool OmitFramePointers
+        {
+            get => PropertyOrNull<bool>("OmitFramePointers");
+            set
+            {
+                UpdateSwitch(
+                    "OmitFramePointers",
+                    new ToolSwitch(ToolSwitchType.Boolean)
+                    {
+                        DisplayName = "Omit Frame Pointer",
+                        Description = "Suppresses creation of frame pointers on the call stack.",
+                        SwitchValue = "-fomit-frame-pointer",
+                        ReverseSwitchValue = "-fno-omit-frame-pointer",
+                    },
+                    value
+                );
+            }
+        }
+
+        protected bool FunctionLevelLinking
+        {
+            get => PropertyOrNull<bool>("FunctionLevelLinking");
+            set
+            {
+                UpdateSwitch(
+                    "FunctionLevelLinking",
+                    new ToolSwitch(ToolSwitchType.Boolean)
+                    {
+                        DisplayName = "Enable Function-Level Linking",
+                        Description = "Allows the compiler to package individual functions in the form of packaged functions (COMDATs). Required for edit and continue to work.     (ffunction-sections).",
+                        SwitchValue = "-ffunction-sections",
+                    },
+                    value
+                );
+            }
+        }
+
+        protected bool DataLevelLinking
+        {
+            get => PropertyOrNull<bool>("DataLevelLinking");
+            set
+            {
+                UpdateSwitch(
+                    "DataLevelLinking",
+                    new ToolSwitch(ToolSwitchType.Boolean)
+                    {
+                        DisplayName = "Enable Data-Level Linking",
+                        Description = "Enables linker optimizations to remove unused data by emitting each data item in a separate section.",
+                        SwitchValue = "-fdata-sections",
+                    },
+                    value
+                );
+            }
+        }
+
+        protected bool BufferSecurityCheck
+        {
+            get => PropertyOrNull<bool>("BufferSecurityCheck");
+            set
+            {
+                UpdateSwitch(
+                    "BufferSecurityCheck",
+                    new ToolSwitch(ToolSwitchType.Boolean)
+                    {
+                        DisplayName = "Security Check",
+                        Description = "The Security Check helps detect stack-buffer over-runs, a common attempted attack upon a program's security. (fstack-protector).",
+                        SwitchValue = "-fstack-protector"
+                    },
+                    value
+                );
+            }
+        }
+
+        protected bool RuntimeTypeInfo
+        {
+            get => PropertyOrNull<bool>("RuntimeTypeInfo");
+            set
+            {
+                UpdateSwitch(
+                    "RuntimeTypeInfo",
+                    new ToolSwitch(ToolSwitchType.Boolean)
+                    {
+                        DisplayName = "Enable Run-Time Type Information",
+                        Description = "Adds code for checking C++ object types at run time (runtime type information).     (frtti, fno-rtti)",
+                        SwitchValue = "-frtti",
+                        ReverseSwitchValue = "-fno-rtti",
+                    },
+                    value
+                );
+            }
+        }
+
+        protected string CLanguageStandard
+        {
+            get => PropertyOrNull<string>("CLanguageStandard");
+            set
+            {
+                UpdateSwitch(
+                    "CLanguageStandard",
+                    new ToolSwitch(ToolSwitchType.String)
+                    {
+                        DisplayName = "C Language Standard",
+                        Description = "Determines the C language standard.",
+                    },
+                    new Dictionary<string, string>
+                    {
+                        { "Default", "" },
+                        { "c89", "-std=c89" },
+                        { "iso9899:199409", "-std=iso9899:199409" },
+                        { "gnu89", "-std=gnu89" },
+                        { "c99", "-std=c99" },
+                        { "gnu99", "-std=gnu99" },
+                        { "c11", "-std=c11" },
+                        { "gnu11", "-std=gnu11" },
+                        { "c17", "-std=c17" },
+                        { "gnu17", "-std=gnu17" },
+                        { "c23", "-std=c23" },
+                        { "gnu23", "-std=gnu23" }
+                    },
+                    value
+                );
+            }
+        }
+
+        protected string CppLanguageStandard
+        {
+            get => PropertyOrNull<string>("CppLanguageStandard");
+            set
+            {
+                UpdateSwitch(
+                    "CppLanguageStandard",
+                    new ToolSwitch()
+                    {
+                        DisplayName = "C++ Language Standard",
+                        Description = "Determines the C++ language standard.",
+                    },
+                    new Dictionary<string, string>
+                    {
+                        { "Default", "" },
+                        { "c++98", "-std=c++98" },
+                        { "gnu++98", "-std=gnu++98" },
+                        { "c++11", "-std=c++11" },
+                        { "gnu++11", "-std=gnu++11" },
+                        { "c++14", "-std=c++14" },
+                        { "gnu++14", "-std=gnu++14" },
+                        { "c++17", "-std=c++17" },
+                        { "gnu++17", "-std=gnu++17" },
+                        { "c++20", "-std=c++20" },
+                        { "gnu++20", "-std=gnu++20" },
+                        { "c++23", "-std=c++23" },
+                        { "gnu++23", "-std=gnu++23" },
+                        { "c++26", "-std=c++26" },
+                        { "gnu++26", "-std=gnu++26" },
+                    },
+                    value
+                );
+            }
+        }
+
+        protected string[] PreprocessorDefinitions
+        {
+            get => PropertyOrNull<string[]>("PreprocessorDefinitions");
+            set
+            {
+                UpdateSwitch(
+                    "PreprocessorDefinitions",
+                    new ToolSwitch(ToolSwitchType.StringArray)
+                    {
+                        DisplayName = "Preprocessor Definitions",
+                        Description = "Defines a preprocessing symbols for your source file. (-D)",
+                        SwitchValue = "-D ",
+                    },
+                    value
+                );
+            }
+        }
+
+        protected string[] UndefinePreprocessorDefinitions
+        {
+            get => PropertyOrNull<string[]>("UndefinePreprocessorDefinitions");
+            set
+            {
+                UpdateSwitch(
+                    "UndefinePreprocessorDefinitions",
+                    new ToolSwitch(ToolSwitchType.StringArray)
+                    {
+                        DisplayName = "Undefine Preprocessor Definitions",
+                        Description = "Specifies one or more preprocessor undefines.  (-U [macro])",
+                        SwitchValue = "-U ",
+                    },
+                    value);
+            }
+        }
+
+        protected bool UndefineAllPreprocessorDefinitions
+        {
+            get => PropertyOrNull<bool>("UndefineAllPreprocessorDefinitions");
+            set
+            {
+                UpdateSwitch(
+                    "UndefineAllPreprocessorDefinitions",
+                    new ToolSwitch(ToolSwitchType.Boolean)
+                    {
+                        DisplayName = "Undefine All Preprocessor Definitions",
+                        Description = "Undefine all previously defined preprocessor values.  (-undef)",
+                        SwitchValue = "-undef",
+                    },
+                    value
+                );
+            }
+        }
     }
 }
