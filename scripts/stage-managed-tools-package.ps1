@@ -36,6 +36,6 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'install-dotnet-runtime.cmd') -D
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'install-dotnet-runtime.sh') -Destination (Join-Path $packageDir 'install-dotnet-runtime.sh') -Force
 
 Write-Host "Staged package: $packageDir"
-Write-Host "  tools/    — single-file executables"
-Write-Host "  runtime/  — bundled .NET 8 runtime installer"
-Write-Host "  install-dotnet-runtime.* — run before first use if .NET 8 is not installed"
+Write-Host "  tools/    - single-file executables"
+Write-Host "  runtime/  - bundled .NET 8 runtime installer"
+Write-Host "  install-dotnet-runtime.* - run before first use if .NET 8 is not installed"
