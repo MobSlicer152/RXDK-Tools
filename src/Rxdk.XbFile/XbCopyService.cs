@@ -21,6 +21,22 @@ public sealed class XbCopyService
         if (destination.HasWildcard)
             throw new XbFileException("Wildcards not allowed in destination name.");
 
+        // Incremental copy (-d) compares the console file's change-time against the local
+        // source. The console stamps that time with ITS clock, which on a devkit is often
+        // unset or badly wrong -- making every unchanged file look older and re-copy every
+        // time. Set the kit clock to host UTC first (and relearn the skew) so the times are
+        // comparable. Best-effort: a kit that refuses setsystime must still deploy.
+        if (_options.CopyIfNewer && _session is not null)
+        {
+            try { _session.Connection.SyncConsoleClock(); }
+            catch (XbdmException ex)
+            {
+                // Surface it: without a settable clock the -d compare is unreliable and
+                // everything re-copies. The user needs to know it's the kit clock.
+                Console.WriteLine($"  warning: could not set kit clock (setsystime): {ex.Message}");
+            }
+        }
+
         var destIsDir = ResolveDestinationIsDirectory(sources, destination);
 
         if (!destIsDir && sources.Count == 1)
@@ -109,12 +125,25 @@ public sealed class XbCopyService
             return;
         }
 
+        var reported = false;
         if (PathExists(dst))
         {
-            if (_options.CopyIfNewer && GetChangeTime(dst) >= GetChangeTime(src))
+            if (_options.CopyIfNewer)
             {
-                _anySuccess = true;
-                return;
+                // FATX change-times are 2-second granular vs a sub-second local mtime, so require
+                // the source to be MORE than 2s newer before re-sending; otherwise rounding alone
+                // forces a needless re-copy. Report the per-file verdict so an incremental deploy
+                // shows what it actually did (add -v for the compared timestamps).
+                var srcTime = GetChangeTime(src);
+                var dstTime = GetChangeTime(dst);
+                var sourceNewer = (srcTime - dstTime).TotalSeconds > 2.0;
+                ReportAction(sourceNewer ? "copy" : "skip", dst, srcTime, dstTime);
+                reported = true;
+                if (!sourceNewer)
+                {
+                    _anySuccess = true;
+                    return;
+                }
             }
 
             if (IsReadOnly(dst) && !_options.ForceReadOnly)
@@ -134,12 +163,29 @@ public sealed class XbCopyService
                 EnsureDirectory(parent);
         }
 
-        if (!_options.Quiet)
-            Console.WriteLine($"{src.DisplayPath} => {dst.DisplayPath}");
+        if (!reported)
+            ReportAction("copy", dst, null, null);
 
         TransferFile(src, dst);
         CopyAttributes(src, dst);
         _anySuccess = true;
+    }
+
+    /// <summary>
+    /// Print one concise per-file action line ("copy"/"skip" + destination), suppressed by -q.
+    /// With -v (and both times known, i.e. the -d comparison) it also shows the compared local
+    /// and kit change-times, which is how you tell whether the kit clock is causing re-copies.
+    /// </summary>
+    private void ReportAction(string verb, XbPath dst, DateTime? local, DateTime? kit)
+    {
+        if (_options.Quiet)
+            return;
+        if (_options.Verbose && local is not null && kit is not null)
+            Console.WriteLine(
+                $"  {verb} {dst.DisplayPath}  " +
+                $"(local {local:yyyy-MM-dd HH:mm:ss}Z, kit {kit:yyyy-MM-dd HH:mm:ss}Z)");
+        else
+            Console.WriteLine($"  {verb} {dst.DisplayPath}");
     }
 
     private void TransferFile(XbPath src, XbPath dst)

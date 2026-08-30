@@ -79,9 +79,10 @@ public static class ProcessRunner
         IReadOnlyList<string> args,
         Action<string>? log = null,
         string? workingDirectory = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool echoCommand = true)
     {
-        if (log is not null)
+        if (log is not null && echoCommand)
         {
             var shown = string.Join(' ', args.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
             log($"$ {command} {shown}");

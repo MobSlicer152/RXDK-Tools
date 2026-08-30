@@ -6,7 +6,7 @@ namespace Rxdk.XbFile;
 /// </summary>
 public static class XbLegacyArgv
 {
-    private static readonly HashSet<char> XbCpOptionChars = new("hrsfyqdetfHRSFYQDETF");
+    private static readonly HashSet<char> XbCpOptionChars = new("hrsfyqdetvHRSFYQDETV");
     private static readonly HashSet<char> XbDirOptionChars = new("hrsbwhHRSBWH");
     private static readonly HashSet<char> XbMkdirOptionChars = new("tT");
     private static readonly HashSet<char> XbDelOptionChars = new("rfvqRFVQ");
