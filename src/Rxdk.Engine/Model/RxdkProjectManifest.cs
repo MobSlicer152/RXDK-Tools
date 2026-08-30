@@ -163,12 +163,14 @@ public sealed class RxdkProjectManifest
     public string? CppStandard { get; set; }
 
     /// <summary>
-    /// Compile C++ sources with exception support (-fexceptions). Omitted = false, i.e.
-    /// -fno-exceptions, which is what a title normally wants on a 64 MB console.
+    /// Compile C++ sources with exception support (-fexceptions). Omitted = true (on): RXDK's
+    /// C++ runtime supports real DWARF/Itanium exceptions on the console, so titles get them by
+    /// default. Set to false for -fno-exceptions when a title wants to shave the EH tables on a
+    /// 64 MB console and never throws.
     ///
-    /// The runtime side is already in place either way: libcpp.lib bundles libunwind and the
-    /// link brackets .eh_frame with the two marker objects it needs. This only decides whether
-    /// the title's own code may throw.
+    /// The runtime side is in place either way: libcpp.lib bundles libunwind, which recovers the
+    /// merged .eh_frame from the PE section table at runtime. This flag only decides whether the
+    /// title's own code may throw.
     /// </summary>
     public bool? Exceptions { get; set; }
 

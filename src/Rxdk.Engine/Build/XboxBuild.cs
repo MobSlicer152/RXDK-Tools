@@ -624,7 +624,7 @@ public static class XboxBuild
             var isCpp = ext is ".cpp" or ".cxx";
             if (isCpp) usesCpp = true;
             await ZigCompileAsync(zig, src, obj, includeArgs, defineArgs, isCpp,
-                                  m.EffectiveCppStandard, m.Exceptions ?? false, optimize, log, ct);
+                                  m.EffectiveCppStandard, m.Exceptions ?? true, optimize, log, ct);
             // A compiler can exit 0 and still write nothing (see the -x note above). Catch that
             // here, where we still know which source it was, rather than at link time.
             if (!File.Exists(obj))
