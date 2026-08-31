@@ -1,4 +1,6 @@
 ﻿using Microsoft.Build.CPPTasks;
+using Microsoft.Build.Framework;
+using Microsoft.Build.Utilities;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -38,6 +40,8 @@ namespace Rxdk.MsBuild.Tasks
                 "WholeArchiveEnd",
                 "LibraryDependencies",
             });
+
+            errorListRegexList.Add(ldMessageRegex);
         }
 
         protected override string SubTool => "ld";
@@ -437,6 +441,52 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
+        protected override string GenerateResponseFileCommandsExceptSwitches(string[] switchesToRemove,
+                                                                             CommandLineFormat format = CommandLineFormat.ForBuildLog,
+                                                                             EscapeFormat escapeFormat = EscapeFormat.EscapeTrailingSlash)
+        {
+            string text = GenerateResponseFileCommandsExceptSwitches(switchesToRemove, format, EscapeFormat.EscapeTrailingSlash);
+            text = FindBackSlashInPath.Replace(text, "\\\\");
+            return text;
+        }
+
+        // Token: 0x060003C0 RID: 960 RVA: 0x0000FFC0 File Offset: 0x0000E1C0
+        protected override void GenerateCommandsAccordingToType(CommandLineBuilder builder,
+                                                                ToolSwitch toolSwitch,
+                                                                CommandLineFormat format = CommandLineFormat.ForBuildLog,
+                                                                EscapeFormat escapeFormat = EscapeFormat.Default)
+        {
+            if (toolSwitch.Name.Equals("AdditionalDependencies", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var value in toolSwitch.StringList)
+                {
+                    builder.AppendSwitchUnquotedIfNotNull("", value);
+                }
+                return;
+            }
+            GenerateCommandsAccordingToType(builder, toolSwitch, format, escapeFormat);
+        }
+
+        protected override void PrintMessage(MessageStruct messageStruct, MessageImportance messageImportance)
+        {
+            if (messageStruct != null)
+            {
+                if (messageStruct.Category == "")
+                {
+                    messageStruct.Category = "error";
+                }
+
+                if (string.Compare(messageStruct.Category, "error", StringComparison.OrdinalIgnoreCase) == 0 ||
+                    string.Compare(messageStruct.Category, "fatal error", StringComparison.OrdinalIgnoreCase) == 0)
+                {
+                    errorCount++;
+                }
+            }
+
+            PrintMessage(messageStruct, messageImportance);
+        }
+
         protected static Regex ldMessageRegex = new Regex("^\\s*(?<FILENAME>[^:]*):(((?<LINE>\\d*):)?)(\\s*(?<CATEGORY>(fatal error|error|warning|note)):)?\\s*(?<TEXT>.*)$", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100.0));
+        private int errorCount = 0;
     }
 }
