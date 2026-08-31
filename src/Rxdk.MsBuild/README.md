@@ -38,6 +38,9 @@ namespace Rxdk.MsBuild.Tasks
                 "MySwitch1",
                 "MySwitch2"
             };
+
+            // you can also add a regex for matching errors
+            // errorListRegexList.Add(new Regex("blah"));
         }
 
         // this may depend on your particular task
