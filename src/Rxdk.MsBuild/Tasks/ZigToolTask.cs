@@ -37,7 +37,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 base.ActiveToolSwitches.Remove("Sources");
-                ToolSwitch toolSwitch = new ToolSwitch(ToolSwitchType.ITaskItemArray)
+                ToolSwitch toolSwitch = new(ToolSwitchType.ITaskItemArray)
                 {
                     Separator = " ",
                     Required = true,

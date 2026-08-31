@@ -43,12 +43,11 @@ namespace Rxdk.MsBuild.Tasks
 
         public virtual string OutputFile
         {
-            get => PropertyOrNull<string>("OutputFile");
+            get => PropertyOrNull<string>();
             set
             {
                 UpdateSwitch(
-                    "OutputFile",
-                    new ToolSwitch(ToolSwitchType.File)
+                    new(ToolSwitchType.File)
                     {
                         DisplayName = "Output File",
                         Description = "The option overrides the default name and location of the program that the linker creates. (-o)",
@@ -61,12 +60,11 @@ namespace Rxdk.MsBuild.Tasks
 
         public virtual bool ShowProgress
         {
-            get => PropertyOrNull<bool>("ShowProgress");
+            get => PropertyOrNull<bool>();
             set
             {
                 UpdateSwitch(
-                    "ShowProgress",
-                    new ToolSwitch(ToolSwitchType.Boolean)
+                    new(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Show Progress",
                         Description = "Prints Linker Progress Messages.",
@@ -76,6 +74,11 @@ namespace Rxdk.MsBuild.Tasks
                 );
             }
         }
+
+        //public virtual bool Version
+        //{
+        //
+        //}
 
         protected static Regex ldMessageRegex = new Regex("^\\s*(?<FILENAME>[^:]*):(((?<LINE>\\d*):)?)(\\s*(?<CATEGORY>(fatal error|error|warning|note)):)?\\s*(?<TEXT>.*)$", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100.0));
     }

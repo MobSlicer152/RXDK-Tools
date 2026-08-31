@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Resources;
+using System.Runtime.CompilerServices;
 
 namespace Rxdk.MsBuild.Tasks
 {
@@ -67,12 +68,12 @@ namespace Rxdk.MsBuild.Tasks
         /// <summary>
         /// Get a property as a certain type
         /// </summary>
-        protected T PropertyOrNull<T>(string name)
+        protected T PropertyOrNull<T>([CallerMemberName] string name = null)
         {
             return (T)PropertyOrNull(name);
         }
 
-        protected void UpdateSwitch(string name, ToolSwitch toolSwitch, object value)
+        protected void UpdateSwitch(ToolSwitch toolSwitch, object value, [CallerMemberName] string name = null)
         {
             // set name and value
             toolSwitch.Name = name;
@@ -110,13 +111,13 @@ namespace Rxdk.MsBuild.Tasks
             AddActiveSwitchToolValue(toolSwitch);
         }
 
-        protected void UpdateSwitch(string name, ToolSwitch toolSwitch, Dictionary<string, string> switchMap, string value)
+        protected void UpdateSwitch(ToolSwitch toolSwitch, Dictionary<string, string> switchMap, string value, [CallerMemberName] string name = null)
         {
             // set switch value and indicate that it's a multivalue
             toolSwitch.SwitchValue = ReadSwitchMap(name, switchMap, value);
             toolSwitch.MultipleValues = true;
 
-            UpdateSwitch(name, toolSwitch, value);
+            UpdateSwitch(toolSwitch, value, name);
         }
     }
 }
