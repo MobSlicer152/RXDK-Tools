@@ -246,22 +246,6 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        public virtual string TrackerLogDirectory
-        {
-            get => PropertyOrNull<string>();
-            set
-            {
-                UpdateSwitch(
-                    new(ToolSwitchType.Directory)
-                    {
-                        DisplayName = "Tracker Log Directory",
-                        Description = "Tracker Log Directory.",
-                    },
-                    value
-                );
-            }
-        }
-
         //protected bool StrictAliasing
         //{
         //    get => PropertyOrNull<bool>("StrictAliasing");

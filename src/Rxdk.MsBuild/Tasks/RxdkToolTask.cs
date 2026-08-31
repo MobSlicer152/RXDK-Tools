@@ -59,7 +59,7 @@ namespace Rxdk.MsBuild.Tasks
                 case ToolSwitchType.ITaskItemArray:
                     return toolSwitch.TaskItemArray;
                 case ToolSwitchType.Integer:
-                    return int.Parse(toolSwitch.Value);
+                    return toolSwitch.Number;
             }
 
             return null;
@@ -102,7 +102,7 @@ namespace Rxdk.MsBuild.Tasks
                     break;
                 case ToolSwitchType.Integer:
                 default:
-                    toolSwitch.Value = value.ToString();
+                    toolSwitch.Number = (int)value;
                     break;
             }
 

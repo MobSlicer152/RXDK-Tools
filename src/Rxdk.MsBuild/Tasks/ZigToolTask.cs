@@ -11,10 +11,6 @@ namespace Rxdk.MsBuild.Tasks
 {
     public abstract class ZigToolTask : RxdkToolTask
     {
-        protected override string TrackerIntermediateDirectory => "";
-        protected override ArrayList SwitchOrderList => switchOrderList;
-        protected ArrayList switchOrderList;
-
         public ZigToolTask()
         {
             switchOrderList = new ArrayList()
@@ -22,6 +18,26 @@ namespace Rxdk.MsBuild.Tasks
                 "SubTool",
                 "Target"
             };
+        }
+        protected override ArrayList SwitchOrderList => switchOrderList;
+        protected ArrayList switchOrderList;
+
+        protected override string TrackerIntermediateDirectory => TrackerLogDirectory ?? "";
+
+        public virtual string TrackerLogDirectory
+        {
+            get => PropertyOrNull<string>();
+            set
+            {
+                UpdateSwitch(
+                    new(ToolSwitchType.Directory)
+                    {
+                        DisplayName = "Tracker Log Directory",
+                        Description = "Tracker Log Directory.",
+                    },
+                    value
+                );
+            }
         }
 
         protected override string ToolName =>
@@ -33,19 +49,17 @@ namespace Rxdk.MsBuild.Tasks
         [Required]
         protected virtual ITaskItem[] Sources
         {
-            get => PropertyOrNull<ITaskItem[]>("Sources");
+            get => PropertyOrNull<ITaskItem[]>();
             set
             {
-                base.ActiveToolSwitches.Remove("Sources");
-                ToolSwitch toolSwitch = new(ToolSwitchType.ITaskItemArray)
-                {
-                    Separator = " ",
-                    Required = true,
-                    ArgumentRelationList = new ArrayList(),
-                    TaskItemArray = value,
-                };
-                base.ActiveToolSwitches.Add("Sources", toolSwitch);
-                base.AddActiveSwitchToolValue(toolSwitch);
+                UpdateSwitch(
+                    new(ToolSwitchType.ITaskItemArray)
+                    {
+                        Separator = " ",
+                        Required = true,
+                    },
+                    value
+                );
             }
         }
 
