@@ -71,7 +71,7 @@ namespace Rxdk.MsBuild.Tasks
         /// <summary>
         /// Dump an XML fragment to expedite writing .targets files
         /// </summary>
-        public void DumpXmlFragment(string parent = null)
+        public void DumpTargetsFragment(string parent = null)
         {
             var name = GetType().Name;
             var start = $"<{name} ";

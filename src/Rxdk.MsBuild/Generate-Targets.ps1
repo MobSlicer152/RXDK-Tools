@@ -7,4 +7,4 @@
 $assembly = Add-Type -AssemblyName $DllPath -PassThru
 
 $taskObj = New-Object -TypeName Rxdk.MsBuild.Tasks.$Task
-$taskObj.DumpXmlFragment($Parent)
+$taskObj.DumpTargetsFragment($Parent)
