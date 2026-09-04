@@ -14,11 +14,13 @@ namespace Rxdk.MsBuild.Tasks
         {
             switchOrderList.AddRange(new string[] {
                 "OutputFile",
+                "AlwaysAppend",
                 "ShowProgress",
                 "Version",
                 "VerboseOutput",
                 "Trace",
                 "TraceSymbols",
+                "EntryPointSymbol",
                 "PrintMap",
                 "LinkerScript",
                 "UnresolvedSymbolReferences",
@@ -26,7 +28,6 @@ namespace Rxdk.MsBuild.Tasks
                 "SharedLibrarySearchPath",
                 "AdditionalLibraryDirectories",
                 "IgnoreSpecificDefaultLibraries",
-                "IgnoreDefaultLibraries",
                 "ForceUndefineSymbolReferences",
                 "DebuggerSymbolInformation",
                 "GenerateMapFile",
@@ -45,6 +46,10 @@ namespace Rxdk.MsBuild.Tasks
         }
 
         protected override string SubTool => "ld";
+        protected override string AlwaysAppend => JoinSwitches([
+            "-nostdlib", "-nostartfiles",
+            "-Wl,--image-base=0x10000",
+        ]);
 
         public virtual string OutputFile
         {
@@ -148,6 +153,23 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
+        public virtual string EntryPointSymbol
+        {
+            get => PropertyOrNull<string>();
+            set
+            {
+                UpdateSwitch(
+                    new(ToolSwitchType.String)
+                    {
+                        DisplayName = "Entry Point",
+                        Description = "Specify an entry point function as the starting address for the title. (--entry=symbol)",
+                        SwitchValue = "-Wl,--entry=",
+                    },
+                    value
+                );
+            }
+        }
+
         public virtual bool PrintMap
         {
             get => PropertyOrNull<bool>();
@@ -244,23 +266,6 @@ namespace Rxdk.MsBuild.Tasks
                         DisplayName = "Ignore Specific Default Libraries",
                         Description = "Specifies one or more names of default libraries to ignore.",
                         SwitchValue = "-Wl,--exclude-libs=",
-                    },
-                    value
-                );
-            }
-        }
-
-        public virtual bool IgnoreDefaultLibraries
-        {
-            get => PropertyOrNull<bool>();
-            set
-            {
-                UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
-                    {
-                        DisplayName = "Ignore Default Libraries",
-                        Description = "Ignore default libraries and only search libraries explicitely specified.",
-                        SwitchValue = "-nostdlib",
                     },
                     value
                 );

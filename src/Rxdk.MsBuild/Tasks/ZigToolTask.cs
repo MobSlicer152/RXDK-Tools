@@ -16,11 +16,10 @@ namespace Rxdk.MsBuild.Tasks
             switchOrderList = new ArrayList()
             {
                 "SubTool",
-                "Target"
+                "Target",
+                "Machine"
             };
         }
-        protected override ArrayList SwitchOrderList => switchOrderList;
-        protected ArrayList switchOrderList;
 
         protected override string TrackerIntermediateDirectory => TrackerLogDirectory ?? "";
 
@@ -45,6 +44,7 @@ namespace Rxdk.MsBuild.Tasks
                 throw new FileNotFoundException("Zig not found.");
         protected abstract string SubTool { get; }
         protected string Target => "-target x86-windows-gnu";
+        protected string Machine => "-march=pentium3";
 
         [Required]
         protected virtual ITaskItem[] Sources
@@ -67,25 +67,5 @@ namespace Rxdk.MsBuild.Tasks
         protected override Encoding ResponseFileEncoding => Encoding.UTF8;
         protected override Encoding StandardOutputEncoding => Encoding.UTF8;
         protected override Encoding StandardErrorEncoding => Encoding.UTF8;
-
-        /// <summary>
-        /// Dump an XML fragment to expedite writing .targets files
-        /// </summary>
-        public void DumpTargetsFragment(string parent = null)
-        {
-            var name = GetType().Name;
-            var start = $"<{name} ";
-            Console.Write(start);
-            var pad = new string(' ', start.Length);
-            bool first = true;
-            foreach (string prop in switchOrderList)
-            {
-                var currentPad = first ? "" : $"\n{pad}";
-                Console.Write($"{currentPad}{prop}=\"{(!string.IsNullOrEmpty(parent) ? $"%({parent}.{prop})" : "")}\"");
-                first = false;
-            }
-
-            Console.WriteLine($" />");
-        }
     }
 }
