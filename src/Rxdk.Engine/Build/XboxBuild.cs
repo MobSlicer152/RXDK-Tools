@@ -102,11 +102,14 @@ public static class XboxBuild
     private static List<string> ProjectDefineArgs(RxdkProjectManifest m) =>
         (m.Defines ?? new()).Where(d => !string.IsNullOrWhiteSpace(d)).Select(d => $"-D{d}").ToList();
 
+    private static List<string> ProjectCompileFlagArgs(RxdkProjectManifest m) =>
+        (m.CompileFlags ?? new()).Where(f => !string.IsNullOrWhiteSpace(f)).ToList();
+
     // ---- per-file compile ----
 
     private static async Task ZigCompileAsync(
         string zig, string source, string obj, IReadOnlyList<string> includeArgs,
-        IReadOnlyList<string> defineArgs, bool isCpp, string cppStandard, bool exceptions,
+        IReadOnlyList<string> defineArgs, IReadOnlyList<string> userFlags, bool isCpp, string cppStandard, bool exceptions,
         RxdkOptimizeMode optimize,
         Action<string>? log, CancellationToken ct)
     {
@@ -154,6 +157,9 @@ public static class XboxBuild
         common.AddRange(includeArgs);
         common.AddRange(defineArgs);
         common.AddRange(XdkClangWarnings);
+        // Project-supplied compile flags come last so they can override the RXDK defaults above
+        // (e.g. -mno-ms-bitfields to undo the MSVC bitfield layout that -fms-compatibility selects).
+        common.AddRange(userFlags);
         // -x: state the language rather than letting clang infer it from the extension. Its
         // suffix table is case-sensitive, so an imported project spelling a source "Foo.Cpp"
         // would otherwise be treated as a linker input and -c would silently emit no object.
@@ -621,11 +627,17 @@ public static class XboxBuild
         var usesCpp = false;
         var anyRecompiled = false;
         var incremental = m.Incremental ?? true;
+        var userFlagArgs = ProjectCompileFlagArgs(m);
         foreach (var relSrc in m.Sources ?? new())
         {
             var src = Path.Combine(projectRoot, relSrc.Replace('/', Path.DirectorySeparatorChar));
             if (!File.Exists(src)) throw new FileNotFoundException($"Source not found: {src}");
-            var obj = Path.Combine(outDir, $"{Path.GetFileNameWithoutExtension(src)}.obj");
+            // Name the object after the full relative source path (separators -> '_'), not just the
+            // basename: a title can have several sources sharing a filename (src/code/main.c and
+            // src/dreamcast/main.c), and a basename-only object would clobber the earlier one,
+            // dropping its symbols at link.
+            var objStem = relSrc.Replace('/', '_').Replace('\\', '_');
+            var obj = Path.Combine(outDir, Path.ChangeExtension(objStem, ".obj"));
             var ext = Path.GetExtension(src).ToLowerInvariant();
             var isCpp = ext is ".cpp" or ".cxx";
             if (isCpp) usesCpp = true;
@@ -640,7 +652,7 @@ public static class XboxBuild
                 continue;
             }
 
-            await ZigCompileAsync(zig, src, obj, includeArgs, defineArgs, isCpp,
+            await ZigCompileAsync(zig, src, obj, includeArgs, defineArgs, userFlagArgs, isCpp,
                                   m.EffectiveCppStandard, m.Exceptions ?? true, optimize, log, ct);
             // A compiler can exit 0 and still write nothing (see the -x note above). Catch that
             // here, where we still know which source it was, rather than at link time.
