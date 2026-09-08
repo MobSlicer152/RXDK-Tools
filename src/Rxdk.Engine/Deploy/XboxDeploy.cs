@@ -24,8 +24,11 @@ public static class XboxDeploy
         public string? ConsoleName { get; init; }
         /// <summary>Filename patterns for the project's own output. Default: *.xbe, *.pdb, *.map.</summary>
         public IReadOnlyList<string>? Files { get; init; }
-        /// <summary>Explicit manifest path (native .vcxproj flow). Null = ProjectRoot/rxdk.project.json.</summary>
-        public string? ManifestPath { get; init; }
+        /// <summary>
+        /// Configuration to select from a multi-config rxdk.project.json (e.g. "Debug"/"Release") --
+        /// this picks the per-config outputDir the build wrote to. Ignored for a flat manifest.
+        /// </summary>
+        public string? Configuration { get; init; }
         public bool Quiet { get; init; }
         public Action<string>? Log { get; init; }
     }
@@ -35,7 +38,9 @@ public static class XboxDeploy
         try
         {
             var projectRoot = Path.GetFullPath(opts.ProjectRoot);
-            var manifest = RxdkManifestLoader.Resolve(projectRoot, opts.ManifestPath);
+            // Resolve the selected configuration so the per-config outputDir (out/Debug vs out/Release)
+            // points at the artifacts this configuration's build actually wrote.
+            var manifest = RxdkManifestLoader.Load(projectRoot).ResolveConfiguration(opts.Configuration);
             var projectName = opts.ProjectName ?? manifest.Name;
             var localDir = Path.GetFullPath(opts.LocalDir ?? SdkLayout.GetProjectOutDir(projectRoot, manifest));
             if (!Directory.Exists(localDir))
@@ -98,13 +103,13 @@ public static class XboxDeploy
     /// <summary>Delete a DXT from the console's E:\dxt via xbdel (pair with a warm reboot).</summary>
     public static async Task<DeployResult> RemoveDxtAsync(
         string projectRoot, string? projectName = null, string? consoleName = null,
-        string? manifestPath = null, Action<string>? log = null, CancellationToken ct = default)
+        Action<string>? log = null, CancellationToken ct = default)
     {
         try
         {
             var name = projectName;
             if (string.IsNullOrEmpty(name))
-                name = RxdkManifestLoader.Resolve(Path.GetFullPath(projectRoot), manifestPath).Name;
+                name = RxdkManifestLoader.Load(Path.GetFullPath(projectRoot)).Name;
             var xbdel = RxdkPaths.ResolveHostTool("xbdel");
             if (!File.Exists(xbdel))
                 return DeployResult.Fail($"xbdel not found at {xbdel}. Update the RXDK host tools.");
