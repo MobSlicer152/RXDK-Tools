@@ -1,10 +1,12 @@
 ﻿param(
-    [string]$DllPath = (Join-Path $PSScriptRoot "bin\Debug\Rxdk.MsBuild.dll"),
+    [string]$DllPath = (Join-Path $PSScriptRoot "bin\Debug\net9.0\Rxdk.MsBuild.dll"),
     [string]$Task,
     [string]$Parent
 )
 
-$assembly = Add-Type -AssemblyName $DllPath -PassThru
-
-$taskObj = New-Object -TypeName Rxdk.MsBuild.Tasks.$Task
-$taskObj.DumpTargetsFragment($Parent)
+Add-Type -AssemblyName $DllPath
+$base = "Rxdk.MsBuild.Tasks.RxdkToolTask"
+$baseType = "[$base]"
+$taskType = "[Rxdk.MsBuild.Tasks.$Task]"
+Invoke-Expression "$baseType::DumpTargetsFragment$taskType('$Parent')"
+Invoke-Expression "$baseType::DumpLangScaffold$taskType([$base+LangFragmentSettings]::new())"

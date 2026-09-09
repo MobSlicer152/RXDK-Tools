@@ -377,7 +377,9 @@ namespace Rxdk.MsBuild.Tasks
                         { "c17", "-std=c17" },
                         { "gnu17", "-std=gnu17" },
                         { "c23", "-std=c23" },
-                        { "gnu23", "-std=gnu23" }
+                        { "gnu23", "-std=gnu23" },
+                        { "c2y", "-std=c2y" },
+                        { "gnu2y", "-std=gnu2y" }
                     },
                     value
                 );
@@ -410,8 +412,10 @@ namespace Rxdk.MsBuild.Tasks
                         { "gnu++20", "-std=gnu++20" },
                         { "c++23", "-std=c++23" },
                         { "gnu++23", "-std=gnu++23" },
-                        { "c++26", "-std=c++26" },
-                        { "gnu++26", "-std=gnu++26" },
+                        { "c++2c", "-std=c++2c" },
+                        { "gnu++2c", "-std=gnu++2c" },
+                        { "c++2d", "-std=c++2d" },
+                        { "gnu++2d", "-std=gnu++2d" },
                     },
                     value
                 );
