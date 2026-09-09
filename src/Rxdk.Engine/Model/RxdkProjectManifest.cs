@@ -150,6 +150,11 @@ public sealed class RxdkProjectManifest
     /// <summary>Extra preprocessor defines (cl /D), appended after RXDK defaults.</summary>
     public List<string>? Defines { get; set; }
 
+    /// <summary>Extra raw compiler flags, appended after the RXDK defaults so a project can
+    /// override them (e.g. "-mno-ms-bitfields" to counteract the default MSVC bitfield layout).
+    /// Passed verbatim to the C/C++ compile of every source in this project.</summary>
+    public List<string>? CompileFlags { get; set; }
+
     /// <summary>
     /// C++ language standard for this project's C++ sources, e.g. "c++17". Omitted = the RXDK
     /// default (see <see cref="EffectiveCppStandard"/>).
@@ -240,6 +245,7 @@ public sealed class RxdkProjectManifest
             IncludePaths = over.IncludePaths ?? IncludePaths,
             PublicIncludePaths = over.PublicIncludePaths ?? PublicIncludePaths,
             Defines = over.Defines ?? Defines,
+            CompileFlags = over.CompileFlags ?? CompileFlags,
             CppStandard = over.CppStandard ?? CppStandard,
             Exceptions = over.Exceptions ?? Exceptions,
             Incremental = over.Incremental ?? Incremental,

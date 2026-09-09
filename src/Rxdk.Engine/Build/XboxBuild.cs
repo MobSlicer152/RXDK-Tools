@@ -13,17 +13,10 @@ public sealed class BuildOptions
     public string? ZigExecutable { get; init; }
     public bool CompileOnly { get; init; }
     /// <summary>
-    /// Compiler optimize level for the title's own code. Null = derive it from the resolved
-    /// configuration's debug/release flag (see <see cref="DeriveOptimize"/>) -- the single source of
-    /// truth so a config named anything (e.g. "mycustomconfig") with configuration:"debug" builds
-    /// debug-optimized. Callers pass a value only to force an explicit override.
-    /// </summary>
-    public RxdkOptimizeMode? Optimize { get; init; }
-    /// <summary>Explicit manifest path (native .vcxproj flow). Null = ProjectRoot/rxdk.project.json.</summary>
-    public string? ManifestPath { get; init; }
-    /// <summary>
     /// Configuration name to select from a multi-config manifest (e.g. "Debug"/"Release"). Ignored
-    /// for a flat single-config manifest. Null = the manifest's defaultConfiguration (or first).
+    /// for a flat single-config manifest. Null = the manifest's defaultConfiguration (or first). The
+    /// compiler optimize level and the SDK lib variant both follow the resolved configuration's
+    /// debug/release flag (see <see cref="DeriveOptimize"/>) -- there is no separate optimize knob.
     /// </summary>
     public string? Configuration { get; init; }
     public Action<string>? Log { get; init; }
@@ -38,10 +31,10 @@ public sealed class BuildOptions
 public static class XboxBuild
 {
     /// <summary>
-    /// Default compiler optimize level for a build, derived from the resolved manifest's debug/release
-    /// flag: a Debug configuration builds -O0 with debug info; a Release one builds ReleaseFast (the
-    /// same default VS20XX's Xbox platform uses for RxdkReleaseOptimize). Callers may still force an
-    /// explicit <see cref="BuildOptions.Optimize"/> to override this.
+    /// Compiler optimize level for a build, derived from the resolved manifest's debug/release flag:
+    /// a Debug configuration builds -O0 with debug info; a Release one builds ReleaseFast. This is the
+    /// single source of truth -- the configuration's debug/release flag drives both the optimize level
+    /// and the SDK lib variant, so there is no separate optimize override.
     /// </summary>
     public static RxdkOptimizeMode DeriveOptimize(RxdkProjectManifest manifest) =>
         manifest.EffectiveConfiguration == RxdkConfiguration.Debug
@@ -76,37 +69,35 @@ public static class XboxBuild
         "-Wno-deprecated-enum-enum-conversion",
     };
 
-    // Resolve a project's manifest: hand-authored rxdk.project.json if present, else the
-    // build-generated out\rxdk.manifest.json (native .vcxproj flow — a referenced child
-    // library project has no rxdk.project.json, only the manifest its own build emitted).
+    // Resolve a project's manifest from its committed rxdk.project.json. Every project has one:
+    // VS Code / VS20XX Open Folder author it directly, and the VS20XX .vcxproj flow generates it
+    // at the project root from the .vcxproj before the build (so a referenced child library project
+    // has its own rxdk.project.json too). A committed manifest may be multi-config; resolve to a
+    // single effective view for the requested configuration.
     private static RxdkProjectManifest ReadManifest(string dir, string? configName = null)
     {
-        // A committed rxdk.project.json may be multi-config; resolve to a single effective view.
-        // (The generated out\rxdk.manifest.json is always single-config, so resolve is a no-op there.)
         if (File.Exists(Path.Combine(dir, RxdkManifestLoader.ManifestFileName)))
             return RxdkManifestLoader.Load(dir).ResolveConfiguration(configName);
-        var generated = Path.Combine(dir, "out", "rxdk.manifest.json");
-        if (File.Exists(generated))
-            return RxdkManifestLoader.LoadFile(generated).ResolveConfiguration(configName);
         throw new FileNotFoundException(
-            $"No manifest for {dir} (expected rxdk.project.json or out\\rxdk.manifest.json). " +
-            "Build the referenced library project first.");
+            $"No rxdk.project.json in {dir}. Build the referenced library project first.");
     }
 
-    // A referenced project has a manifest if it ships a hand-authored rxdk.project.json OR
-    // (native .vcxproj flow) has already generated one into out\ from its VS build.
+    // A referenced project has a manifest if it ships an rxdk.project.json (committed, or generated
+    // from its .vcxproj by its own build, which runs first via the project-reference build order).
     private static bool HasManifest(string dir) =>
-        File.Exists(Path.Combine(dir, RxdkManifestLoader.ManifestFileName)) ||
-        File.Exists(Path.Combine(dir, "out", "rxdk.manifest.json"));
+        File.Exists(Path.Combine(dir, RxdkManifestLoader.ManifestFileName));
 
     private static List<string> ProjectDefineArgs(RxdkProjectManifest m) =>
         (m.Defines ?? new()).Where(d => !string.IsNullOrWhiteSpace(d)).Select(d => $"-D{d}").ToList();
+
+    private static List<string> ProjectCompileFlagArgs(RxdkProjectManifest m) =>
+        (m.CompileFlags ?? new()).Where(f => !string.IsNullOrWhiteSpace(f)).ToList();
 
     // ---- per-file compile ----
 
     private static async Task ZigCompileAsync(
         string zig, string source, string obj, IReadOnlyList<string> includeArgs,
-        IReadOnlyList<string> defineArgs, bool isCpp, string cppStandard, bool exceptions,
+        IReadOnlyList<string> defineArgs, IReadOnlyList<string> userFlags, bool isCpp, string cppStandard, bool exceptions,
         RxdkOptimizeMode optimize,
         Action<string>? log, CancellationToken ct)
     {
@@ -154,6 +145,9 @@ public static class XboxBuild
         common.AddRange(includeArgs);
         common.AddRange(defineArgs);
         common.AddRange(XdkClangWarnings);
+        // Project-supplied compile flags come last so they can override the RXDK defaults above
+        // (e.g. -mno-ms-bitfields to undo the MSVC bitfield layout that -fms-compatibility selects).
+        common.AddRange(userFlags);
         // -x: state the language rather than letting clang infer it from the extension. Its
         // suffix table is case-sensitive, so an imported project spelling a source "Foo.Cpp"
         // would otherwise be treated as a linker input and -c would silently emit no object.
@@ -552,8 +546,7 @@ public static class XboxBuild
             var dir = Path.GetFullPath(Path.Combine(projectRoot, rel));
             if (!HasManifest(dir))
                 throw new InvalidOperationException(
-                    $"projectReferences: no manifest in {dir} " +
-                    "(rxdk.project.json, or out\\rxdk.manifest.json from a prior build)");
+                    $"projectReferences: no rxdk.project.json in {dir} (build that project first)");
             refs.Add(dir);
         }
         return refs;
@@ -621,11 +614,17 @@ public static class XboxBuild
         var usesCpp = false;
         var anyRecompiled = false;
         var incremental = m.Incremental ?? true;
+        var userFlagArgs = ProjectCompileFlagArgs(m);
         foreach (var relSrc in m.Sources ?? new())
         {
             var src = Path.Combine(projectRoot, relSrc.Replace('/', Path.DirectorySeparatorChar));
             if (!File.Exists(src)) throw new FileNotFoundException($"Source not found: {src}");
-            var obj = Path.Combine(outDir, $"{Path.GetFileNameWithoutExtension(src)}.obj");
+            // Name the object after the full relative source path (separators -> '_'), not just the
+            // basename: a title can have several sources sharing a filename (src/code/main.c and
+            // src/dreamcast/main.c), and a basename-only object would clobber the earlier one,
+            // dropping its symbols at link.
+            var objStem = relSrc.Replace('/', '_').Replace('\\', '_');
+            var obj = Path.Combine(outDir, Path.ChangeExtension(objStem, ".obj"));
             var ext = Path.GetExtension(src).ToLowerInvariant();
             var isCpp = ext is ".cpp" or ".cxx";
             if (isCpp) usesCpp = true;
@@ -640,7 +639,7 @@ public static class XboxBuild
                 continue;
             }
 
-            await ZigCompileAsync(zig, src, obj, includeArgs, defineArgs, isCpp,
+            await ZigCompileAsync(zig, src, obj, includeArgs, defineArgs, userFlagArgs, isCpp,
                                   m.EffectiveCppStandard, m.Exceptions ?? true, optimize, log, ct);
             // A compiler can exit 0 and still write nothing (see the -x note above). Catch that
             // here, where we still know which source it was, rather than at link time.
@@ -796,15 +795,15 @@ public static class XboxBuild
         try
         {
             var projectRoot = Path.GetFullPath(opts.ProjectRoot);
-            var manifest = RxdkManifestLoader.Resolve(projectRoot, opts.ManifestPath)
+            var manifest = RxdkManifestLoader.Load(projectRoot)
                 .ResolveConfiguration(opts.Configuration);
             var projectName = manifest.Name;
             var outDir = SdkLayout.GetProjectOutDir(projectRoot, manifest);
             Directory.CreateDirectory(outDir);
-            // Optimize follows the config's debug/release flag unless the caller forced an explicit
-            // mode. This keeps the compiler opt level and the SDK lib variant (both read from the same
-            // `configuration` flag below) in lockstep regardless of the configuration's name.
-            var optimize = opts.Optimize ?? DeriveOptimize(manifest);
+            // Optimize follows the config's debug/release flag. This keeps the compiler opt level and
+            // the SDK lib variant (both read from the same `configuration` flag below) in lockstep
+            // regardless of the configuration's name.
+            var optimize = DeriveOptimize(manifest);
 
             // Prerequisite preflight: on a machine where nothing has been set up yet (a user who
             // just opened a sample and hit Build), fail with one clear, actionable message instead
@@ -968,7 +967,7 @@ public static class XboxBuild
                 var linkInputs = new List<string>(objs);
                 foreach (var l in linkLibs)
                     if (!l.StartsWith("-", StringComparison.Ordinal)) linkInputs.Add(l);
-                linkInputs.Add(opts.ManifestPath ?? Path.Combine(projectRoot, RxdkManifestLoader.ManifestFileName));
+                linkInputs.Add(Path.Combine(projectRoot, RxdkManifestLoader.ManifestFileName));
                 foreach (var item in manifest.Embed ?? new())
                     if (!string.IsNullOrEmpty(item.Path))
                         linkInputs.Add(Path.Combine(projectRoot, item.Path.Replace('/', Path.DirectorySeparatorChar)));

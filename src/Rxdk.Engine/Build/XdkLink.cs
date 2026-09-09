@@ -38,7 +38,12 @@ public static class XdkLink
             (ehBegin, ehEnd) = await CompileEhBracketsAsync(zig, Path.GetDirectoryName(Path.GetFullPath(outExe))!, log, ct);
         if (ehBegin is not null) args.Add(ehBegin);
 
-        args.AddRange(objs);
+        // Objects go through a response file: a full title has hundreds of them, and passing every
+        // path on the command line blows past the Windows CreateProcess limit (~32 KB) -> the link
+        // fails with "The filename or extension is too long". Clang/zig read @file, one arg per line.
+        var rsp = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(outExe))!, "link_objs.rsp");
+        await File.WriteAllLinesAsync(rsp, objs.Select(o => "\"" + o.Replace('\\', '/') + "\""), ct);
+        args.Add("@" + rsp);
 
         if (libDir is not null)
         {

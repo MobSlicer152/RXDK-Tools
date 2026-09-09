@@ -27,12 +27,12 @@ if (args.Length == 0)
     Console.Error.WriteLine("  samples-status              Report staged samples presence");
     Console.Error.WriteLine("  update-sdk|update-docs|update-tools|update-samples   Update a staged component in place");
     Console.Error.WriteLine("  versions                    Print current/available version per component (SDK/Docs/Tools/Samples)");
-    Console.Error.WriteLine("  build --project-root <dir> [--optimize <mode>] [--configuration <name>] [--compile-only]   Compile+link to .xbe");
-    Console.Error.WriteLine("  deploy --project-root <dir> [--console <ip>]     Copy build output to the devkit");
+    Console.Error.WriteLine("  build --project-root <dir> [--configuration <name>] [--compile-only]   Compile+link to .xbe");
+    Console.Error.WriteLine("  deploy --project-root <dir> [--configuration <name>] [--console <ip>]     Copy build output to the devkit");
     Console.Error.WriteLine("  run --project-root <dir> [--console <ip>] [--reboot] [--go]   Launch the deployed title (--go = run without halting for a debugger)");
     Console.Error.WriteLine("  launch-xemu --project-root <dir> [--xemu-path <exe>] [--xemu-params <args>]   Build + boot the ISO in xemu");
     Console.Error.WriteLine("  reboot [--console <ip>]     Warm-reboot the devkit");
-    Console.Error.WriteLine("  remove-dxt --project-root <dir> [--manifest <p>] [--console <ip>]   Delete the DXT from xe:\\dxt");
+    Console.Error.WriteLine("  remove-dxt --project-root <dir> [--name <n>] [--console <ip>]   Delete the DXT from xe:\\dxt");
     Console.Error.WriteLine("  set-ip --address <ip>       Set the devkit IP/hostname (registry)");
     Console.Error.WriteLine("  xbox-ip                     Print the resolved devkit address");
     Console.Error.WriteLine("  import-vcproj --in <file.vcproj> [--out <dir>] [--scaffold <dir>] [--copy-sources]   Import a VS2003 XDK project");
@@ -315,27 +315,14 @@ static async Task<int> CmdBuild(Dictionary<string, string> opts)
         Console.Error.WriteLine("missing required --project-root");
         return 2;
     }
-    // --optimize is optional: omit it and the engine derives it from the resolved configuration's
-    // debug/release flag (the single source of truth). Pass it only to force an explicit override.
-    RxdkOptimizeMode? optimize = null;
-    if (opts.TryGetValue("optimize", out var opt) && !string.IsNullOrEmpty(opt))
-    {
-        if (!OptimizeMode.TryParse(opt, out var parsed))
-        {
-            Console.Error.WriteLine($"invalid --optimize '{opt}' (Debug|ReleaseSafe|ReleaseFast|ReleaseSmall)");
-            return 2;
-        }
-        optimize = parsed;
-    }
-
-    opts.TryGetValue("manifest", out var manifestPath);
+    // The build reads the project's committed rxdk.project.json and derives everything (optimize
+    // level, SDK lib variant) from the selected configuration's debug/release flag -- so the only
+    // knobs are --project-root and the optional --configuration (multi-config select).
     opts.TryGetValue("configuration", out var configName);
     var result = await XboxBuild.BuildAsync(new BuildOptions
     {
         ProjectRoot = root,
-        Optimize = optimize,
         CompileOnly = opts.ContainsKey("compile-only"),
-        ManifestPath = string.IsNullOrEmpty(manifestPath) ? null : manifestPath,
         Configuration = string.IsNullOrEmpty(configName) ? null : configName,
         Log = msg => Console.WriteLine(msg),
     });
@@ -356,12 +343,12 @@ static async Task<int> CmdDeploy(Dictionary<string, string> opts)
         return 2;
     }
     opts.TryGetValue("console", out var console);
-    opts.TryGetValue("manifest", out var deployManifest);
+    opts.TryGetValue("configuration", out var deployConfig);
     var result = await XboxDeploy.DeployProjectAsync(new XboxDeploy.DeployOptions
     {
         ProjectRoot = root,
         ConsoleName = string.IsNullOrEmpty(console) ? null : console,
-        ManifestPath = string.IsNullOrEmpty(deployManifest) ? null : deployManifest,
+        Configuration = string.IsNullOrEmpty(deployConfig) ? null : deployConfig,
         Log = msg => Console.WriteLine(msg),
     });
     if (!result.Ok)
@@ -380,13 +367,11 @@ static async Task<int> CmdRemoveDxt(Dictionary<string, string> opts)
         return 2;
     }
     opts.TryGetValue("console", out var console);
-    opts.TryGetValue("manifest", out var manifest);
     opts.TryGetValue("name", out var name);
     var result = await XboxDeploy.RemoveDxtAsync(
         root,
         projectName: string.IsNullOrEmpty(name) ? null : name,
         consoleName: string.IsNullOrEmpty(console) ? null : console,
-        manifestPath: string.IsNullOrEmpty(manifest) ? null : manifest,
         log: msg => Console.WriteLine(msg));
     if (!result.Ok)
     {
@@ -403,13 +388,10 @@ static async Task<int> CmdRun(Dictionary<string, string> opts)
         Console.Error.WriteLine("missing required --project-root");
         return 2;
     }
-    opts.TryGetValue("manifest", out var runManifest);
-    RxdkProjectManifest? manifest;
-    try { manifest = RxdkManifestLoader.Resolve(root, string.IsNullOrEmpty(runManifest) ? null : runManifest); }
-    catch { manifest = null; }
+    var manifest = RxdkManifestLoader.TryLoad(root);
     if (manifest is null)
     {
-        Console.Error.WriteLine($"no valid manifest for {root}");
+        Console.Error.WriteLine($"no valid rxdk.project.json for {root}");
         return 1;
     }
     opts.TryGetValue("console", out var console);
@@ -443,25 +425,12 @@ static async Task<int> CmdLaunchXemu(Dictionary<string, string> opts)
         Console.Error.WriteLine("missing required --project-root");
         return 2;
     }
-    // Optional --optimize (see CmdBuild): omit to let the engine derive it from the config flag.
-    RxdkOptimizeMode? optimize = null;
-    if (opts.TryGetValue("optimize", out var opt) && !string.IsNullOrEmpty(opt))
-    {
-        if (!OptimizeMode.TryParse(opt, out var parsed))
-        {
-            Console.Error.WriteLine($"invalid --optimize '{opt}' (Debug|ReleaseSafe|ReleaseFast|ReleaseSmall)");
-            return 2;
-        }
-        optimize = parsed;
-    }
-    opts.TryGetValue("manifest", out var manifestPath);
-
-    RxdkProjectManifest? manifest;
-    try { manifest = RxdkManifestLoader.Resolve(root, string.IsNullOrEmpty(manifestPath) ? null : manifestPath); }
-    catch { manifest = null; }
+    opts.TryGetValue("configuration", out var xemuConfig);
+    var manifest = RxdkManifestLoader.TryLoad(root)?.ResolveConfiguration(
+        string.IsNullOrEmpty(xemuConfig) ? null : xemuConfig);
     if (manifest is null)
     {
-        Console.Error.WriteLine($"no valid manifest for {root}");
+        Console.Error.WriteLine($"no valid rxdk.project.json for {root}");
         return 1;
     }
 
@@ -469,8 +438,7 @@ static async Task<int> CmdLaunchXemu(Dictionary<string, string> opts)
     var build = await XboxBuild.BuildAsync(new BuildOptions
     {
         ProjectRoot = root,
-        Optimize = optimize,
-        ManifestPath = string.IsNullOrEmpty(manifestPath) ? null : manifestPath,
+        Configuration = string.IsNullOrEmpty(xemuConfig) ? null : xemuConfig,
         Log = msg => Console.WriteLine(msg),
     });
     if (!build.Ok)
