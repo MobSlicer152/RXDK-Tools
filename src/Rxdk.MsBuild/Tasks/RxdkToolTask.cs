@@ -26,6 +26,12 @@ namespace Rxdk.MsBuild.Tasks
 
         protected string ReadSwitchMap(string propertyName, IDictionary<string, string> switchMap, string value)
         {
+            // values dont matter for a dump
+            if (beingDumped && !switchMap.ContainsKey(value))
+            {
+                return "";
+            }
+
             return ReadSwitchMap(propertyName, switchMap.Select(kv => new[] { kv.Key, kv.Value }).ToArray(), value);
         }
 
@@ -151,11 +157,11 @@ namespace Rxdk.MsBuild.Tasks
         /// <param name="initialPad">How far to indent the element</param>
         protected static void PrintXmlElement(string name, Dictionary<string, string> attributes, Action<int> printBody = null, int initialPad = 0)
         {
-            var start = $"<{name} ";
-            Console.Write(start);
 
             var indent = new string(' ', initialPad);
-            var pad = indent + new string(' ', start.Length);
+            var start = $"{indent}<{name} ";
+            Console.Write(start);
+            var pad = new string(' ', start.Length);
             bool first = true;
             foreach (var (attrib, value) in attributes)
             {
@@ -186,6 +192,7 @@ namespace Rxdk.MsBuild.Tasks
             temp.beingDumped = true;
 
             var attribs = new Dictionary<string, string>();
+            if (!string.IsNullOrEmpty(parent)) { attribs["Condition"] = $"'@({parent}) != ''"; }
             foreach (string prop in temp.switchOrderList)
             {
                 attribs[prop] = !string.IsNullOrEmpty(parent) ? $"%({parent}.{prop})" : "";
@@ -204,12 +211,66 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
+        LangFragmentSettings dumpSettings;
         private bool beingDumped = false;
         private int indent = 0;
 
-        protected static void DumpLangProperty(ToolSwitch toolSwitch, Dictionary<string, string> switchMap)
+        protected string RemoveSwitchPrefix(string switchValue)
         {
-            Console.WriteLine(toolSwitch.Name);
+            if (switchValue.StartsWith(dumpSettings.SwitchPrefix))
+            {
+                return switchValue.Remove(0, dumpSettings.SwitchPrefix.Length);
+            }
+            return switchValue;
+        }
+
+        protected void DumpLangProperty(ToolSwitch toolSwitch, Dictionary<string, string> switchMap)
+        {
+            var attribs = new Dictionary<string, string>
+                {
+                    {"Name", toolSwitch.Name},
+                    {"DisplayName", toolSwitch.DisplayName},
+                    {"Description", toolSwitch.Description},
+                };
+            var type = "String";
+            Action<int> printBody = null;
+            if (toolSwitch.MultipleValues)
+            {
+                type = "Enum";
+                printBody = (int pad) =>
+                {
+                    var attribs = new Dictionary<string, string>();
+                    foreach (var kv in switchMap)
+                    {
+                        attribs["Name"] = kv.Key;
+                        var switchValue = RemoveSwitchPrefix(kv.Value);
+                        if (switchValue.Length > 0)
+                        {
+                            attribs["Switch"] = switchValue;
+                        }
+                        PrintXmlElement("EnumValue", attribs, initialPad: pad);
+                    }
+                };
+            }
+            else
+            {
+                var switchValue = RemoveSwitchPrefix(toolSwitch.SwitchValue);
+                if (switchValue.Length > 0)
+                {
+                    attribs["Switch"] = switchValue;
+                }
+                switch (toolSwitch.Type)
+                {
+                    case ToolSwitchType.Boolean:
+                        type = "Bool";
+                        break;
+                    case ToolSwitchType.StringArray:
+                        type = "StringList";
+                        break;
+                }
+            }
+
+            PrintXmlElement($"{type}Property", attribs, printBody, indent);
         }
 
         /// <summary>
@@ -220,13 +281,14 @@ namespace Rxdk.MsBuild.Tasks
         {
             var temp = new T();
             temp.beingDumped = true;
+            temp.dumpSettings = settings;
 
             Console.WriteLine("<?xml version=\"1.0\" encoding=\"utf-8\"?>");
             PrintXmlElement("Rule", new Dictionary<string, string>()
                 {
                     {"Name", settings.RuleName},
                     {"DisplayName", settings.RuleDisplayName},
-                    {"SwitchValue", settings.SwitchPrefix},
+                    {"SwitchPrefix", settings.SwitchPrefix},
                     {"PageTemplate", "tool"},
                     {"xmlns", "http://schemas.microsoft.com/build/2009/properties"},
                     {"xmlns:x", "http://schemas.microsoft.com/winfx/2006/xaml"},
@@ -245,7 +307,29 @@ namespace Rxdk.MsBuild.Tasks
                             // i admit this a jank way to do it, ideally in the future it will be the other way around
                             // and the classes can be generated from the lang file. i just wanted to get it working.
                             // this is also only to accelerate something i could hand-type anyway.
-                            property.SetValue(temp, null);
+                            var type = property.PropertyType;
+                            object tempObj = null;
+                            if (type == typeof(string))
+                            {
+                                tempObj = "";
+                            }
+                            else if (type.IsArray)
+                            {
+                                tempObj = new string[1];
+                            }
+                            else
+                            {
+                                tempObj = Activator.CreateInstance(type);
+                            }
+
+                            try
+                            {
+                                property.SetValue(temp, tempObj);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine(ex.ToString());
+                            }
                         }
                     }
                 }

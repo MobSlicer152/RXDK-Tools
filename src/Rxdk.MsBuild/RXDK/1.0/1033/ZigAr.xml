@@ -1,0 +1,53 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Rule Name=""
+      DisplayName=""
+      SwitchPrefix="-"
+      PageTemplate="tool"
+      xmlns="http://schemas.microsoft.com/build/2009/properties"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:sys="clr-namespace:System;assembly=mscorlib" >
+    <EnumProperty Name="Command"
+                  DisplayName="Command"
+                  Description="Command for AR." >
+        <EnumValue Name="Delete"
+                   Switch="d" />
+        <EnumValue Name="Move"
+                   Switch="m" />
+        <EnumValue Name="Print"
+                   Switch="p" />
+        <EnumValue Name="Quick"
+                   Switch="q" />
+        <EnumValue Name="Replacement"
+                   Switch="r" />
+        <EnumValue Name="Table"
+                   Switch="t" />
+        <EnumValue Name="Extract"
+                   Switch="x" />
+    </EnumProperty>
+    <BoolProperty Name="CreateIndex"
+                  DisplayName="Create an archive index"
+                  Description="Create an archive index (cf. ranlib).  This can speed up linking and reduce dependency within its own library."
+                  Switch="s" />
+    <BoolProperty Name="CreateThinArchive"
+                  DisplayName="Create Thin Archive"
+                  Description="Create a thin archive.  A thin archive contains relativepaths to the objects instead of embedding the objects.  Switching between Thin and Normal requires deleting the existing library."
+                  Switch="T" />
+    <BoolProperty Name="NoWarnOnCreate"
+                  DisplayName="No Warning on Create"
+                  Description="Do not warn if when the library is created."
+                  Switch="c" />
+    <BoolProperty Name="TruncateTimestamp"
+                  DisplayName="Truncate Timestamp"
+                  Description="Use zero for timestamps and uids/gids."
+                  Switch="D" />
+    <BoolProperty Name="SuppressStartupBanner"
+                  DisplayName="Suppress Startup Banner"
+                  Description="Don't show version number." />
+    <BoolProperty Name="Verbose"
+                  DisplayName="Verbose"
+                  Description="Verbose"
+                  Switch="v" />
+    <StringProperty Name="OutputFile"
+                    DisplayName="Output File"
+                    Description="Override the default name and location of the library." />
+</Rule>

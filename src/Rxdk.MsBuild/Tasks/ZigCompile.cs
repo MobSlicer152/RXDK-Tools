@@ -60,7 +60,6 @@ namespace Rxdk.MsBuild.Tasks
                     {
                         DisplayName = "Optimization",
                         Description = "Specifies the optimization level for the title.",
-                        ArgumentRelationList = new ArrayList(),
                         Value = value,
                         MultipleValues = true,
                     },
@@ -392,7 +391,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new()
+                    new(ToolSwitchType.String)
                     {
                         DisplayName = "C++ Language Standard",
                         Description = "Determines the C++ language standard.",
