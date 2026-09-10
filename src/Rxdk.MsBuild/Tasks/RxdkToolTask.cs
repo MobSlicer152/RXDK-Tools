@@ -77,11 +77,13 @@ namespace Rxdk.MsBuild.Tasks
 
         protected string ReadSwitchMap(string propertyName, IDictionary<string, string> switchMap, string value)
         {
+#if DEBUG
             // values dont matter for a dump
             if (beingDumped && !switchMap.ContainsKey(value))
             {
                 return "";
             }
+#endif
 
             return ReadSwitchMap(propertyName, switchMap.Select(kv => new[] { kv.Key, kv.Value }).ToArray(), value);
         }
