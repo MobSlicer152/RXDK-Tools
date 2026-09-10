@@ -97,6 +97,8 @@ namespace Rxdk.MsBuild.Tasks
             // cppFlags).
             "-femulated-tls",
 
+            "-fno-sanitize=undefined",
+
             // -I (not -isystem) everywhere: the SDK's clean-room windef.h/etc. must win over zig's
             // bundled MinGW headers, which -isystem would let shadow them.
             // The sample + framework code is compiled warning-clean; only these unavoidable suppressions

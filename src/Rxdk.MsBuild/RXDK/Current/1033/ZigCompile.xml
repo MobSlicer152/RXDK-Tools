@@ -50,15 +50,15 @@
                   Description="Specifies the optimization level for the title."
                   Category="Optimization" >
         <EnumValue Name="None"
-                   Switch="O0" />
+                   Switch="O0 -fno-sanitize=undefined" />
         <EnumValue Name="FavorSpeed"
                    DisplayName="Favor Speed"
-                   Switch="O2" />
+                   Switch="O2 -fno-sanitize=undefined" />
         <EnumValue Name="FavorSize"
                    DisplayName="Favor Size"
-                   Switch="Os" />
+                   Switch="Os -fno-sanitize=undefined" />
         <EnumValue Name="Full"
-                   Switch="O3" />
+                   Switch="O3 -fno-sanitize=undefined" />
     </EnumProperty>
     <StringProperty Name="AdditionalIncludeDirectories"
                     DisplayName="Additional Include Directories"

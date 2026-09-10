@@ -90,10 +90,19 @@
             <FormatUtilityDrive Condition="'%(ImageBld.FormatUtilityDrive)' == ''">false</FormatUtilityDrive>
             <UtilityDriveClusterSize Condition="'%(ImageBld.UtilityDriveClusterSize)' == ''">Default</UtilityDriveClusterSize>
         </ImageBld>
+
+        <Xiso>
+            <OutputFile>$(OutDir)$(TargetName).iso</OutputFile>
+        </Xiso>
     </ItemDefinitionGroup>
 
     <ItemGroup>
         <ImageBld Condition="'$(NeedImageBld)' != ''" Include="$(OutDir)$(TargetName).exe" />
+    </ItemGroup>
+    
+    <ItemGroup Condition="'$(ConfigurationType)' == 'Application'">
+        <IsoCopy Include="$(ProjectDir)Media\**" />
+        <Xiso Include="$(OutDir)XISO" />
     </ItemGroup>
 
     <Import Project="$(MSBuildThisFileDirectory)ImportAfter\*.props" Condition="Exists('$(MSBuildThisFileDirectory)ImportAfter')" />

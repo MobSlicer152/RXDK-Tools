@@ -20,7 +20,3 @@ Here are some notes if you're planning to work on it:
 - Any modifications to the files won't be picked up by Visual Studio until you restart it
 - Unless you're working on property pages, using MSBuild from the command line lets you iterate faster
 - Symlinking the `RXDK` folder into `Application Types` is super handy
-
-## Sample project
-
-See the [test folder](test/) for a sample project, you can probably modify it enough for your purposes.

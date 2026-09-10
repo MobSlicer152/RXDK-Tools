@@ -3,6 +3,7 @@
     <UsingTask TaskName="Rxdk.MsBuild.Tasks.ZigLd" AssemblyFile="$(MSBuildThisFileDirectory)Rxdk.MsBuild.dll"/>
     <UsingTask TaskName="Rxdk.MsBuild.Tasks.ZigAr" AssemblyFile="$(MSBuildThisFileDirectory)Rxdk.MsBuild.dll"/>
     <UsingTask TaskName="Rxdk.MsBuild.Tasks.ImageBld" AssemblyFile="$(MSBuildThisFileDirectory)Rxdk.MsBuild.dll"/>
+    <UsingTask TaskName="Rxdk.MsBuild.Tasks.Xiso" AssemblyFile="$(MSBuildThisFileDirectory)Rxdk.MsBuild.dll"/>
 
     <!-- cleanup properties which are not supported by clang -->
     <Import Project="$(VCTargetsPath)\Microsoft.Cpp.ClangCl.Exclusion.props" />
@@ -245,6 +246,7 @@
 
         <WriteLinesToFile Overwrite="true" Encoding="Unicode" File="$(TLogLocation)\lib.write.1.tlog" Lines="@(Lib->'^%(Fullpath)');$(LinkUpToDateFile)" />
     </Target>
+    
     <Target Name="ImageBld" DependsOnTargets="Link">
         <ItemGroup>
             <ImageBld>
@@ -285,10 +287,40 @@
         <WriteLinesToFile Overwrite="true" Encoding="Unicode" File="$(TLogLocation)\imagebld.write.1.tlog" Lines="@(ImageBld->'^%(Fullpath)');$(LinkUpToDateFile)" />
     </Target>
 
+    <Target Name="StageIsoFiles" Condition="'@(Xiso)' != ''">
+        <PropertyGroup>
+            <_XisoDir>@(Xiso)</_XisoDir>
+        </PropertyGroup>
+        <RemoveDir Directories="$(_XisoDir)" />
+        <!-- Copy the XBE and any other files -->
+        <Copy SourceFiles="%(ImageBld.OutputFile)"
+              DestinationFiles="$(_XisoDir)\default.xbe"
+              UseHardlinksIfPossible="true" />
+        <Copy SourceFiles="@(IsoCopy)"
+              DestinationFolder="$(_XisoDir)"
+              UseHardlinksIfPossible="true" />
+    </Target>
+    
+    <Target Name="Xiso" DependsOnTargets="StageIsoFiles">
+        <ItemGroup>
+            <Xiso>
+                <TimestampSurrogate Condition="'%(Xiso.TimestampSurrogate)' == ''">$(CompileUpToDateFile)</TimestampSurrogate>
+            </Xiso>
+        </ItemGroup>
+
+        <Xiso Condition="'@(Xiso)' != ''"
+              OutputFile="%(Xiso.OutputFile)"
+              InputDirectory="@(Xiso)" />
+
+        <WriteLinesToFile Overwrite="true" Condition="'@(ProjectReferenceToLink->HasMetadata(TimestampSurrogate))' != ''" Encoding="Unicode" File="$(TLogLocation)\Xiso.read.1.tlog" Lines="@(Xiso->'^%(Fullpath)','|');@(ProjectReferenceToLink->'%(TimestampSurrogate)'->Distinct())" />
+
+        <WriteLinesToFile Overwrite="true" Encoding="Unicode" File="$(TLogLocation)\xiso.write.1.tlog" Lines="@(Xiso->'^%(Fullpath)');$(LinkUpToDateFile)" />
+    </Target>
+
     <!-- Make sure ImageBld is called -->
     <PropertyGroup Condition="'$(ConfigurationType)' == 'Application' or '$(ConfigurationType)' == 'DebuggerExtension'">
         <BuildDependsOn>
-            $(BuildDependsOn);ImageBld
+            $(BuildDependsOn);ImageBld;Xiso
         </BuildDependsOn>
     </PropertyGroup>
     
@@ -306,6 +338,7 @@
         <PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(LangID)\ZigLd.xml" />
         <PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(LangID)\ZigAr.xml" />
         <PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(LangID)\ImageBld.xml" />
+        <PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(LangID)\Xiso.xml" />
     </ItemGroup>
 
     <!-- Property pages -->
@@ -322,6 +355,7 @@
         <!-- Tools that show up in the IDE property pages for Link/Lib -->
         <ProjectTools Condition="'$(ConfigurationType)' == 'Application' or '$(ConfigurationType)' == 'DebuggerExtension'" Include="Link" />
         <ProjectTools Condition="'$(ConfigurationType)' == 'Application' or '$(ConfigurationType)' == 'DebuggerExtension'" Include="ImageBld" />
+        <ProjectTools Condition="'$(ConfigurationType)' == 'Application'" Include="Xiso" />
         <ProjectTools Condition="'$(ConfigurationType)' == 'StaticLibrary'" Include="Lib" />
         <ProjectTools Include="CustomBuildStep" />
     </ItemGroup>

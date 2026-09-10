@@ -77,19 +77,14 @@
     <None Include="Scripts\Generate-Targets.ps1" />
     <Compile Include="Tasks\ImageBld.cs" />
     <Compile Include="Tasks\RxdkToolTask.cs" />
+    <Compile Include="Tasks\Xiso.cs" />
     <Compile Include="Tasks\ZigAr.cs" />
     <Compile Include="Tasks\ZigCompile.cs" />
     <Compile Include="Tasks\ZigLd.cs" />
     <Compile Include="Tasks\ZigToolTask.cs" />
-    <None Include="test\test.vcxproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="RXDK\Current\1033\ImageBld.xml" />
-    <Content Include="test\main.cpp" />
-    <Content Include="test\test.slnx" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <PropertyGroup>
-    <PostBuildEvent>rem copy /b $(TargetFile) $(ProjectDir)RXDK\1.1.18\$(TargetName)$(TargetExt)</PostBuildEvent>
-  </PropertyGroup>
 </Project>
