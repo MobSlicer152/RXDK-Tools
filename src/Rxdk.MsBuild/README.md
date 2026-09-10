@@ -61,7 +61,7 @@ namespace Rxdk.MsBuild.Tasks
             {
                 // UpdateSwitch does a lot of heavy lifting to make ToolSwitch more straightforward to use
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         // I'm genuinely not sure if these are used
                         DisplayName = "My Switch 1",
@@ -85,7 +85,7 @@ namespace Rxdk.MsBuild.Tasks
             {
                 // this is a more complex switch that changes depending on the string value
                 UpdateSwitch(
-                    new(ToolSwitchType.String)
+                    new ToolSwitch(ToolSwitchType.String)
                     {
                         DisplayName = "My Switch 2",
                         Description = "This does some other thing.",

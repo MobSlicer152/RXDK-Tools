@@ -1,7 +1,7 @@
 ﻿using Microsoft.Build.CPPTasks;
 using Microsoft.Build.Framework;
-using Rxdk.Engine.Bootstrap;
-using Rxdk.Engine.Platform;
+//using Rxdk.Engine.Bootstrap;
+//using Rxdk.Engine.Platform;
 using System;
 using System.Collections;
 using System.IO;
@@ -15,7 +15,6 @@ namespace Rxdk.MsBuild.Tasks
         {
             switchOrderList = new ArrayList()
             {
-                "SubTool",
                 "Target",
                 "Machine"
             };
@@ -29,7 +28,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Directory)
+                    new ToolSwitch(ToolSwitchType.Directory)
                     {
                         DisplayName = "Tracker Log Directory",
                         Description = "Tracker Log Directory.",
@@ -39,21 +38,69 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        protected override string ToolName =>
-            ZigRuntime.ResolveZigExecutableAsync().GetAwaiter().GetResult() ??
-                throw new FileNotFoundException("Zig not found.");
-        protected abstract string SubTool { get; }
-        protected string Target => "-target x86-windows-gnu";
-        protected string Machine => "-march=pentium3";
+        protected override string GenerateFullPathToTool()
+        {
+            return ToolName;
+        }
+
+        protected override string ToolName
+        {
+            get
+            {
+                var zig = Environment.GetEnvironmentVariable("RXDK_ZIG");
+                if (string.IsNullOrEmpty(zig))
+                {
+                    FatalError("The RXDK_ZIG environment variable is not set, did you install correctly?");
+                    return "";
+                }
+
+                return zig;
+            }
+        }
+        //ZigRuntime.ResolveZigExecutableAsync().GetAwaiter().GetResult() ??
+        //  throw new FileNotFoundException("Zig not found.");
+        public abstract string SubTool { get; }
+        public string Target => "x86-windows-gnu";
+        public string Machine => "-march=pentium3";
+
+        // the sub tool must be on the command line or response files will not be processed
+        protected override string GenerateCommandLineCommandsExceptSwitches(string[] switchesToRemove, CommandLineFormat format = CommandLineFormat.ForBuildLog, EscapeFormat escapeFormat = EscapeFormat.Default)
+        {
+            return SubTool;
+        }
+
+        protected override void AddDefaultsToActiveSwitchList()
+        {
+            UpdateSwitch(
+                new ToolSwitch(ToolSwitchType.String)
+                {
+                    DisplayName = "Target",
+                    Description = "The target triple to build for.",
+                    SwitchValue = "-target ",
+                },
+                Target,
+                "Target"
+            );
+            UpdateSwitch(
+                new ToolSwitch(ToolSwitchType.Boolean)
+                {
+                    DisplayName = "Machine",
+                    Description = "The machine to build for.",
+                    SwitchValue = Machine,
+                },
+                true,
+                "Machine"
+            );
+        }
 
         [Required]
-        protected virtual ITaskItem[] Sources
+        public virtual ITaskItem[] Sources
         {
             get => PropertyOrNull<ITaskItem[]>();
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.ITaskItemArray)
+                    new ToolSwitch(ToolSwitchType.ITaskItemArray)
                     {
                         Separator = " ",
                         Required = true,
@@ -64,7 +111,7 @@ namespace Rxdk.MsBuild.Tasks
         }
 
         protected override ITaskItem[] TrackedInputFiles => Sources;
-        protected override Encoding ResponseFileEncoding => Encoding.UTF8;
+        protected override Encoding ResponseFileEncoding => Encoding.ASCII;
         protected override Encoding StandardOutputEncoding => Encoding.UTF8;
         protected override Encoding StandardErrorEncoding => Encoding.UTF8;
     }

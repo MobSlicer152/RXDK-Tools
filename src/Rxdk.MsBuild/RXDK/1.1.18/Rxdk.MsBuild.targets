@@ -1,12 +1,12 @@
 ﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-    <UsingTask TaskName="Tasks.ZigCompile" AssemblyFile="$(MSBuildThisFileDirectory)Rxdk.MsBuild.dll"/>
-    <UsingTask TaskName="Tasks.ZigLd" AssemblyFile="$(MSBuildThisFileDirectory)Rxdk.MsBuild.dll"/>
-    <UsingTask TaskName="Tasks.ZigAr" AssemblyFile="$(MSBuildThisFileDirectory)Rxdk.MsBuild.dll"/>
+    <UsingTask TaskName="Rxdk.MsBuild.Tasks.ZigCompile" AssemblyFile="$(MSBuildThisFileDirectory)Rxdk.MsBuild.dll"/>
+    <UsingTask TaskName="Rxdk.MsBuild.Tasks.ZigLd" AssemblyFile="$(MSBuildThisFileDirectory)Rxdk.MsBuild.dll"/>
+    <UsingTask TaskName="Rxdk.MsBuild.Tasks.ZigAr" AssemblyFile="$(MSBuildThisFileDirectory)Rxdk.MsBuild.dll"/>
 
-    <!-- cleanup properties which are not supported by clang-cl -->
+    <!-- cleanup properties which are not supported by clang -->
     <Import Project="$(VCTargetsPath)\Microsoft.Cpp.ClangCl.Exclusion.props" />
     <Import Project="$(VCTargetsPath)\Microsoft.Cpp.LldLink.Exclusion.props" />
-
+    
     <Import Project="$(VCTargetsPath)\Microsoft.CppCommon.targets" />
 
     <!-- *******************************************************************************************
@@ -131,7 +131,6 @@
                     Sources="@(ClCompile)"
                     
                     Optimization="%(ClCompile.Optimization)"
-                    AlwaysAppend="%(ClCompile.AlwaysAppend)"
                     DebugInfo="%(ClCompile.DebugInfo)"
                     AdditionalIncludeDirectories="%(ClCompile.AdditionalIncludeDirectories)"
                     ObjectFileName="%(ClCompile.ObjectFileName)"
@@ -139,7 +138,6 @@
                     TreatWarningAsError="%(ClCompile.TreatWarningAsError)"
                     Verbose="%(ClCompile.Verbose)"
                     TrackerLogDirectory="%(ClCompile.TrackerLogDirectory)"
-                    StrictAliasing="%(ClCompile.StrictAliasing)"
                     OmitFramePointers="%(ClCompile.OmitFramePointers)"
                     FunctionLevelLinking="%(ClCompile.FunctionLevelLinking)"
                     DataLevelLinking="%(ClCompile.DataLevelLinking)"
@@ -161,7 +159,6 @@
                     Sources="@(ClCompile)"
                     
                     Optimization="%(ClCompile.Optimization)"
-                    AlwaysAppend="%(ClCompile.AlwaysAppend)"
                     DebugInfo="%(ClCompile.DebugInfo)"
                     AdditionalIncludeDirectories="%(ClCompile.AdditionalIncludeDirectories)"
                     ObjectFileName="%(ClCompile.ObjectFileName)"
@@ -169,7 +166,6 @@
                     TreatWarningAsError="%(ClCompile.TreatWarningAsError)"
                     Verbose="%(ClCompile.Verbose)"
                     TrackerLogDirectory="%(ClCompile.TrackerLogDirectory)"
-                    StrictAliasing="%(ClCompile.StrictAliasing)"
                     OmitFramePointers="%(ClCompile.OmitFramePointers)"
                     FunctionLevelLinking="%(ClCompile.FunctionLevelLinking)"
                     DataLevelLinking="%(ClCompile.DataLevelLinking)"
@@ -198,7 +194,6 @@
                Sources="@(Link)"
                OutputFile="%(Link.OutputFile)"
                
-               AlwaysAppend="%(Link.AlwaysAppend)"
                ShowProgress="%(Link.ShowProgress)"
                Version="%(Link.Version)"
                VerboseOutput="%(Link.VerboseOutput)"
@@ -209,7 +204,7 @@
                LinkerScript="%(Link.LinkerScript)"
                UnresolvedSymbolReferences="%(Link.UnresolvedSymbolReferences)"
                OptimizeforMemory="%(Link.OptimizeforMemory)"
-               SharedLibrarySearchPath="%(Link.SharedLibrarySearchPath)"
+               LibraryPath="$(LibraryPath)"
                AdditionalLibraryDirectories="%(Link.AdditionalLibraryDirectories)"
                IgnoreSpecificDefaultLibraries="%(Link.IgnoreSpecificDefaultLibraries)"
                ForceUndefineSymbolReferences="%(Link.ForceUndefineSymbolReferences)"
@@ -235,9 +230,9 @@
         </ItemGroup>
 
         <ZigAr Condition="'@(Lib)' != ''"
+               Sources="@(Lib)"
             
                Command="%(Lib.Command)"
-               AlwaysAppend="%(Lib.AlwaysAppend)"
                CreateIndex="%(Lib.CreateIndex)"
                CreateThinArchive="%(Lib.CreateThinArchive)"
                NoWarnOnCreate="%(Lib.NoWarnOnCreate)"
@@ -245,8 +240,7 @@
                SuppressStartupBanner="%(Lib.SuppressStartupBanner)"
                Verbose="%(Lib.Verbose)"
                AdditionalOptions="%(Lib.AdditionalOptions)"
-               OutputFile="%(Lib.OutputFile)"
-               Sources="%(Lib.Sources)" />
+               OutputFile="%(Lib.OutputFile)" />
 
         <WriteLinesToFile Overwrite="true" Condition="'@(ProjectReferenceToLink->HasMetadata(TimestampSurrogate))' != ''" Encoding="Unicode" File="$(TLogLocation)\Lib.read.1.tlog" Lines="@(Lib->'^%(Fullpath)','|');@(ProjectReferenceToLink->'%(TimestampSurrogate)'->Distinct())" />
 
@@ -256,12 +250,13 @@
     <!-- Designtime definitions -->
     <!-- Property pages -->
     <ItemGroup>
-        <PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(LangID)\general.xml">
+        <PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(LangID)\General.xml">
             <Context>Project</Context>
         </PropertyPageSchema>
         <PropertyPageSchema Include="$(VCTargetsPath)$(LangID)\folder.xml">
             <Context>File;BrowseObject</Context>
         </PropertyPageSchema>
+        <PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(LangID)\RxdkDebugger.xml"/>
         <PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(LangID)\ZigCompile.xml"/>
         <PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(LangID)\ZigLd.xml" />
         <PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(LangID)\ZigAr.xml" />
@@ -279,7 +274,7 @@
         <RemotePostBuildEvent Include="$(ProjectName)" />
 
         <!-- Tools that show up in the IDE property pages for Link/Lib -->
-        <ProjectTools Condition="'$(ConfigurationType)' == 'Application' or '$(ConfigurationType)' == 'DynamicLibrary'" Include="Link" />
+        <ProjectTools Condition="'$(ConfigurationType)' == 'Application' or '$(ConfigurationType)' == 'DebuggerExtension'" Include="Link" />
         <ProjectTools Condition="'$(ConfigurationType)' == 'StaticLibrary'" Include="Lib" />
         <ProjectTools Include="CustomBuildStep" />
     </ItemGroup>

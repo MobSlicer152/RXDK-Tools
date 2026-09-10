@@ -28,7 +28,7 @@ namespace Rxdk.MsBuild.Tasks
             });
         }
 
-        protected override string SubTool => "ar";
+        public override string SubTool => "ar";
         protected override string AlwaysAppend => "-r";
 
         public virtual string Command
@@ -37,7 +37,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.String)
+                    new ToolSwitch(ToolSwitchType.String)
                     {
                         DisplayName = "Command",
                         Description = "Command for AR.",
@@ -63,7 +63,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Create an archive index",
                         Description = "Create an archive index (cf. ranlib).  This can speed up linking and reduce dependency within its own library.",
@@ -80,7 +80,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Create Thin Archive",
                         Description = "Create a thin archive.  A thin archive contains relativepaths to the objects instead of embedding the objects.  Switching between Thin and Normal requires deleting the existing library.",
@@ -97,7 +97,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "No Warning on Create",
                         Description = "Do not warn if when the library is created.",
@@ -114,7 +114,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Truncate Timestamp",
                         Description = "Use zero for timestamps and uids/gids.",
@@ -131,7 +131,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Suppress Startup Banner",
                         Description = "Don't show version number.",
@@ -148,7 +148,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Verbose",
                         Description = "Verbose",
@@ -165,7 +165,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.File)
+                    new ToolSwitch(ToolSwitchType.File)
                     {
                         Separator = " ",
                         DisplayName = "Output File",

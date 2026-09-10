@@ -3,6 +3,7 @@ using Microsoft.Build.Framework;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Resources;
@@ -19,9 +20,40 @@ namespace Rxdk.MsBuild.Tasks
         protected override ArrayList SwitchOrderList => switchOrderList;
         protected ArrayList switchOrderList;
 
+        public string GetRXDKRoot()
+        {
+            var root = Environment.GetEnvironmentVariable("RXDK");
+            if (string.IsNullOrEmpty(root))
+            {
+                FatalError("The RXDK environment variable is not set, did install correctly?");
+                return null;
+            }
+
+            return root;
+        }
+
+        protected void FatalError(string msg)
+        {
+            PrintMessage(
+                new MessageStruct()
+                {
+                    Text = msg,
+                    Category = "fatal error"
+                },
+                MessageImportance.High
+            );
+            Cancel();
+        }
+
         protected override string GenerateFullPathToTool()
         {
-            return ToolName;
+            if (Path.IsPathRooted(ToolName))
+            {
+                return ToolName;
+            }
+
+            var rxdk = GetRXDKRoot();
+            return $"{rxdk}\\tools\\{ToolName}";
         }
 
         protected string ReadSwitchMap(string propertyName, IDictionary<string, string> switchMap, string value)
@@ -83,7 +115,7 @@ namespace Rxdk.MsBuild.Tasks
             return (T)PropertyOrNull(name);
         }
 
-        protected void UpdateSwitch(ToolSwitch toolSwitch, object value, [CallerMemberName] string name = null)
+        protected void UpdateSwitch(ToolSwitch toolSwitch, object value = null, [CallerMemberName] string name = null)
         {
             // set name and value
             toolSwitch.Name = name;
@@ -95,6 +127,7 @@ namespace Rxdk.MsBuild.Tasks
                     break;
                 case ToolSwitchType.String:
                 case ToolSwitchType.File:
+                default:
                     toolSwitch.Value = (string)value;
                     break;
                 case ToolSwitchType.Directory:
@@ -111,8 +144,9 @@ namespace Rxdk.MsBuild.Tasks
                     toolSwitch.TaskItemArray = (ITaskItem[])value;
                     break;
                 case ToolSwitchType.Integer:
-                default:
                     toolSwitch.Number = (int)value;
+                    break;
+                case ToolSwitchType.AlwaysAppend:
                     break;
             }
 
@@ -124,7 +158,7 @@ namespace Rxdk.MsBuild.Tasks
             // dont do a repeat dump
             if (beingDumped && !toolSwitch.MultipleValues)
             {
-                DumpLangProperty(toolSwitch, []);
+                DumpLangProperty(toolSwitch, new Dictionary<string, string> { });
                 return;
             }
 #endif
@@ -163,10 +197,10 @@ namespace Rxdk.MsBuild.Tasks
             Console.Write(start);
             var pad = new string(' ', start.Length);
             bool first = true;
-            foreach (var (attrib, value) in attributes)
+            foreach (var kv in attributes)
             {
                 var currentPad = first ? "" : $"\n{pad}";
-                Console.Write($"{currentPad}{attrib}=\"{value}\"");
+                Console.Write($"{currentPad}{kv.Key}=\"{kv.Value}\"");
                 first = false;
             }
 
@@ -204,11 +238,7 @@ namespace Rxdk.MsBuild.Tasks
         {
             public string RuleName { get; set; }
             public string RuleDisplayName { get; set; }
-            public string SwitchPrefix { get; set; } = "-";
-
-            public LangFragmentSettings()
-            {
-            }
+            public string SwitchPrefix => "-";
         }
 
         LangFragmentSettings dumpSettings;
@@ -239,16 +269,16 @@ namespace Rxdk.MsBuild.Tasks
                 type = "Enum";
                 printBody = (int pad) =>
                 {
-                    var attribs = new Dictionary<string, string>();
+                    var valueAttribs = new Dictionary<string, string>();
                     foreach (var kv in switchMap)
                     {
-                        attribs["Name"] = kv.Key;
+                        valueAttribs["Name"] = kv.Key;
                         var switchValue = RemoveSwitchPrefix(kv.Value);
                         if (switchValue.Length > 0)
                         {
-                            attribs["Switch"] = switchValue;
+                            valueAttribs["Switch"] = switchValue;
                         }
-                        PrintXmlElement("EnumValue", attribs, initialPad: pad);
+                        PrintXmlElement("EnumValue", valueAttribs, initialPad: pad);
                     }
                 };
             }

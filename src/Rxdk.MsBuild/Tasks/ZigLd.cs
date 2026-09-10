@@ -25,8 +25,7 @@ namespace Rxdk.MsBuild.Tasks
                 "LinkerScript",
                 "UnresolvedSymbolReferences",
                 "OptimizeforMemory",
-                "SharedLibrarySearchPath",
-                "AdditionalLibraryDirectories",
+                "LibraryPath",
                 "IgnoreSpecificDefaultLibraries",
                 "ForceUndefineSymbolReferences",
                 "DebuggerSymbolInformation",
@@ -45,11 +44,11 @@ namespace Rxdk.MsBuild.Tasks
             errorListRegexList.Add(ldMessageRegex);
         }
 
-        protected override string SubTool => "ld";
-        protected override string AlwaysAppend => JoinSwitches([
+        public override string SubTool => "cc";
+        protected override string AlwaysAppend => JoinSwitches(new string[] {
             "-nostdlib", "-nostartfiles",
             "-Wl,--image-base=0x10000",
-        ]);
+        });
 
         public virtual string OutputFile
         {
@@ -57,7 +56,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.File)
+                    new ToolSwitch(ToolSwitchType.File)
                     {
                         DisplayName = "Output File",
                         Description = "The option overrides the default name and location of the program that the linker creates. (-o)",
@@ -74,7 +73,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Show Progress",
                         Description = "Prints Linker Progress Messages.",
@@ -91,7 +90,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Version",
                         Description = "The -version option tells the linker to put a version number in the header of the executable.",
@@ -108,7 +107,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Enable Verbose Output",
                         Description = "The -verbose option tells the linker to output verbose messages for debugging.",
@@ -125,7 +124,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Trace",
                         Description = "The --trace option tells the linker to output the input files as are processed.",
@@ -142,7 +141,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.StringArray)
+                    new ToolSwitch(ToolSwitchType.StringArray)
                     {
                         DisplayName = "Trace Symbols",
                         Description = "Print the list of files in which a symbol appears. (--trace-symbol=symbol)",
@@ -159,7 +158,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.String)
+                    new ToolSwitch(ToolSwitchType.String)
                     {
                         DisplayName = "Entry Point",
                         Description = "Specify an entry point function as the starting address for the title. (--entry=symbol)",
@@ -176,11 +175,28 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Print Map",
                         Description = "The --print-map option tells the linker to output a link map.",
                         SwitchValue = "-Wl,--print-map",
+                    },
+                    value
+                );
+            }
+        }
+
+        public virtual string LinkerScript
+        {
+            get => PropertyOrNull<string>();
+            set
+            {
+                UpdateSwitch(
+                    new ToolSwitch(ToolSwitchType.String)
+                    {
+                        DisplayName = "Linker Script",
+                        Description = "The -T option tells the linker to use a linker script.",
+                        SwitchValue = "-T ",
                     },
                     value
                 );
@@ -193,11 +209,28 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Report Unresolved Symbol References",
                         Description = "This option when enabled will report unresolved symbol references.",
                         SwitchValue = "-Wl,--no-undefined",
+                    },
+                    value
+                );
+            }
+        }
+
+        public virtual string[] LibraryPath
+        {
+            get => PropertyOrNull<string[]>();
+            set
+            {
+                UpdateSwitch(
+                    new ToolSwitch(ToolSwitchType.StringPathArray)
+                    {
+                        DisplayName = "Library Search Path",
+                        Description = "Library search path. (-L folder).",
+                        SwitchValue = "-L ",
                     },
                     value
                 );
@@ -210,28 +243,11 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Optimize For Memory Usage",
                         Description = "Optimize for memory usage, by rereading the symbol tables as necessary.",
                         SwitchValue = "-Wl,--no-keep-memory",
-                    },
-                    value
-                );
-            }
-        }
-
-        public virtual string[] SharedLibrarySearchPath
-        {
-            get => PropertyOrNull<string[]>();
-            set
-            {
-                UpdateSwitch(
-                    new(ToolSwitchType.StringPathArray)
-                    {
-                        DisplayName = "Shared Library Search Path",
-                        Description = "Allows the user to populate the shared library search path.",
-                        SwitchValue = "-Wl,-rpath-link=",
                     },
                     value
                 );
@@ -244,11 +260,11 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.StringPathArray)
+                    new ToolSwitch(ToolSwitchType.StringPathArray)
                     {
                         DisplayName = "Additional Library Directories",
                         Description = "Allows the user to override the environmental library path. (-L folder).",
-                        SwitchValue = "-Wl,-L",
+                        SwitchValue = "-L ",
                     },
                     value
                 );
@@ -261,7 +277,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.StringArray)
+                    new ToolSwitch(ToolSwitchType.StringArray)
                     {
                         DisplayName = "Ignore Specific Default Libraries",
                         Description = "Specifies one or more names of default libraries to ignore.",
@@ -277,7 +293,7 @@ namespace Rxdk.MsBuild.Tasks
             get => PropertyOrNull<bool>(); set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Force Symbol References",
                         Description = "Force symbol to be entered in the output file as an undefined symbol.",
@@ -294,7 +310,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.String)
+                    new ToolSwitch(ToolSwitchType.String)
                     {
                         DisplayName = "Debugger Symbol Information",
                         Description = "Debugger symbol information from the output file.",
@@ -318,7 +334,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.String)
+                    new ToolSwitch(ToolSwitchType.String)
                     {
                         DisplayName = "Map File Name",
                         Description = "The Map option tells the linker to create a map file with the user specified name.",
@@ -335,7 +351,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Mark Variables ReadOnly After Relocation",
                         Description = "This option marks variables read-only after relocation.",
@@ -353,7 +369,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Enable Immediate Function Binding",
                         Description = "This option marks object for immediate function binding.",
@@ -370,7 +386,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Executable Stack Not Required",
                         Description = "This option marks output as not requiring executable stack.",
@@ -387,7 +403,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         DisplayName = "Whole Archive",
                         Description = "Whole Archive uses all code from Sources and Additional Dependencies.",
@@ -404,7 +420,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.StringArray)
+                    new ToolSwitch(ToolSwitchType.StringArray)
                     {
                         DisplayName = "Additional Dependencies",
                         Description = "Specifies additional items to add to the link command line.",
@@ -420,7 +436,7 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.Boolean)
+                    new ToolSwitch(ToolSwitchType.Boolean)
                     {
                         SwitchValue = "-Wl,--no-whole-archive",
                     },
@@ -435,10 +451,10 @@ namespace Rxdk.MsBuild.Tasks
             set
             {
                 UpdateSwitch(
-                    new(ToolSwitchType.StringArray)
+                    new ToolSwitch(ToolSwitchType.StringArray)
                     {
                         DisplayName = "Library Dependencies",
-                        Description = "This option allows specifying additional libraries to be  added to the linker command line. The additional library will be added to the end of the linker command line  prefixed with 'lib' and end with the '.a' extension.  (-lNAME)",
+                        Description = "This option allows specifying additional libraries to be  added to the linker command line. The additional library will be added to the end of the linker command line  with the '.lib' extension.  (-lNAME)",
                         SwitchValue = "-l",
                     },
                     value
@@ -450,7 +466,7 @@ namespace Rxdk.MsBuild.Tasks
                                                                              CommandLineFormat format = CommandLineFormat.ForBuildLog,
                                                                              EscapeFormat escapeFormat = EscapeFormat.EscapeTrailingSlash)
         {
-            string text = GenerateResponseFileCommandsExceptSwitches(switchesToRemove, format, EscapeFormat.EscapeTrailingSlash);
+            string text = base.GenerateResponseFileCommandsExceptSwitches(switchesToRemove, format, EscapeFormat.EscapeTrailingSlash);
             text = FindBackSlashInPath.Replace(text, "\\\\");
             return text;
         }
@@ -469,7 +485,7 @@ namespace Rxdk.MsBuild.Tasks
                 }
                 return;
             }
-            GenerateCommandsAccordingToType(builder, toolSwitch, format, escapeFormat);
+            base.GenerateCommandsAccordingToType(builder, toolSwitch, format, escapeFormat);
         }
 
         protected override void PrintMessage(MessageStruct messageStruct, MessageImportance messageImportance)
@@ -488,7 +504,7 @@ namespace Rxdk.MsBuild.Tasks
                 }
             }
 
-            PrintMessage(messageStruct, messageImportance);
+            base.PrintMessage(messageStruct, messageImportance);
         }
 
         protected static Regex ldMessageRegex = new Regex("^\\s*(?<FILENAME>[^:]*):(((?<LINE>\\d*):)?)(\\s*(?<CATEGORY>(fatal error|error|warning|note)):)?\\s*(?<TEXT>.*)$", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100.0));

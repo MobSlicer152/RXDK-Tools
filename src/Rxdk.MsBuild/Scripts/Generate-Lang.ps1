@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$DllPath = (Join-Path $PSScriptRoot "..\bin\Debug\net9.0\Rxdk.MsBuild.dll"),
+    [string]$DllPath = (Join-Path $PSScriptRoot "..\bin\Debug\Rxdk.MsBuild.dll"),
     [string]$Task
 )
 
