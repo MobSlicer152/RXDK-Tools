@@ -151,4 +151,11 @@
                         Description="This option allows specifying additional libraries to be  added to the linker command line. The additional library will be added to the end of the linker command line  with the '.lib' extension.  (-lNAME)"
                         Category="Input"
                         Switch="l" />
+  <StringProperty
+     Name="AdditionalOptions"
+     DisplayName="Additional Options"
+     Description="Additional Options."
+     Category="Command Line"
+     F1Keyword="vc.project.AdditionalOptionsPage">
+  </StringProperty>
 </Rule>

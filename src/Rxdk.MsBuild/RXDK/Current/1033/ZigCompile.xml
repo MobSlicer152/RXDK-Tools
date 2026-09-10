@@ -292,4 +292,11 @@
                         Description="one or more forced include files.     (-include [name])"
                         Switch="include "
                         Category="Advanced" />
+  <StringProperty
+     Name="AdditionalOptions"
+     DisplayName="Additional Options"
+     Description="Additional Options."
+     Category="Command Line"
+     F1Keyword="vc.project.AdditionalOptionsPage">
+  </StringProperty>
 </Rule>

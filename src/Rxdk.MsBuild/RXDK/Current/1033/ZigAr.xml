@@ -69,4 +69,11 @@
                     DisplayName="Output File"
                     Description="Override the default name and location of the library."
                     Category="General" />
+    <StringProperty
+       Name="AdditionalOptions"
+       DisplayName="Additional Options"
+       Description="Additional Options."
+       Category="Command Line"
+       F1Keyword="vc.project.AdditionalOptionsPage">
+    </StringProperty>
 </Rule>
