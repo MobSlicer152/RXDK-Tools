@@ -20,24 +20,6 @@ namespace Rxdk.MsBuild.Tasks
             };
         }
 
-        protected override string TrackerIntermediateDirectory => TrackerLogDirectory ?? "";
-
-        public virtual string TrackerLogDirectory
-        {
-            get => PropertyOrNull<string>();
-            set
-            {
-                UpdateSwitch(
-                    new ToolSwitch(ToolSwitchType.Directory)
-                    {
-                        DisplayName = "Tracker Log Directory",
-                        Description = "Tracker Log Directory.",
-                    },
-                    value
-                );
-            }
-        }
-
         protected override string GenerateFullPathToTool()
         {
             return ToolName;

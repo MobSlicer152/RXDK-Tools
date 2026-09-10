@@ -1,5 +1,6 @@
 ﻿using Microsoft.Build.CPPTasks;
 using Microsoft.Build.Framework;
+using Microsoft.Build.Utilities;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -19,6 +20,24 @@ namespace Rxdk.MsBuild.Tasks
         }
         protected override ArrayList SwitchOrderList => switchOrderList;
         protected ArrayList switchOrderList;
+
+        protected override string TrackerIntermediateDirectory => TrackerLogDirectory ?? "";
+
+        public virtual string TrackerLogDirectory
+        {
+            get => PropertyOrNull<string>();
+            set
+            {
+                UpdateSwitch(
+                    new ToolSwitch(ToolSwitchType.Directory)
+                    {
+                        DisplayName = "Tracker Log Directory",
+                        Description = "Tracker Log Directory.",
+                    },
+                    value
+                );
+            }
+        }
 
         public string GetRXDKRoot()
         {
@@ -117,6 +136,12 @@ namespace Rxdk.MsBuild.Tasks
 
         protected void UpdateSwitch(ToolSwitch toolSwitch, object value = null, [CallerMemberName] string name = null)
         {
+            // wont even get emitted anyway; skip a bad cast
+            if (toolSwitch.Type == ToolSwitchType.Integer && !toolSwitch.IsValid)
+            {
+                return;
+            }
+
             // set name and value
             toolSwitch.Name = name;
             // set the right field based on type
@@ -179,6 +204,29 @@ namespace Rxdk.MsBuild.Tasks
                 DumpLangProperty(toolSwitch, switchMap);
             }
 #endif
+        }
+
+        protected override void GenerateCommandsAccordingToType(CommandLineBuilder builder, ToolSwitch toolSwitch, CommandLineFormat format = CommandLineFormat.ForBuildLog, EscapeFormat escapeFormat = EscapeFormat.Default)
+        {
+            try
+            {
+                // whole override is because the base handles these in a different way than is useful
+                if (toolSwitch.Type == ToolSwitchType.ITaskItem && !string.IsNullOrEmpty(toolSwitch.SwitchValue))
+                {
+                    if (!string.IsNullOrEmpty(toolSwitch.TaskItem.ItemSpec))
+                    {
+                        builder.AppendSwitchIfNotNull(toolSwitch.SwitchValue, Environment.ExpandEnvironmentVariables(toolSwitch.TaskItem.ItemSpec + toolSwitch.Separator));
+                        return;
+                    }
+                }
+
+                base.GenerateCommandsAccordingToType(builder, toolSwitch, format, escapeFormat);
+            }
+            catch (Exception ex)
+            {
+                base.Log.LogErrorFromResources("GenerateCommandLineError", toolSwitch.Name, toolSwitch.ValueAsString, ex.Message);
+                //ex.RethrowIfCritical();
+            }
         }
 
 #if DEBUG

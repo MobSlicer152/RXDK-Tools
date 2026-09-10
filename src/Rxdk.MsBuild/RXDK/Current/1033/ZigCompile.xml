@@ -127,6 +127,7 @@
                   DisplayName="Enable Run-Time Type Information"
                   Description="Adds code for checking C++ object types at run time (runtime type information).     (frtti, fno-rtti)"
                   Switch="frtti"
+                  ReverseSwitch="fno-rtti"
                   Category="Code Generation" />
     <EnumProperty Name="CLanguageStandard"
                   DisplayName="C Language Standard"

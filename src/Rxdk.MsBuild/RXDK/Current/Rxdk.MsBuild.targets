@@ -2,6 +2,7 @@
     <UsingTask TaskName="Rxdk.MsBuild.Tasks.ZigCompile" AssemblyFile="$(MSBuildThisFileDirectory)Rxdk.MsBuild.dll"/>
     <UsingTask TaskName="Rxdk.MsBuild.Tasks.ZigLd" AssemblyFile="$(MSBuildThisFileDirectory)Rxdk.MsBuild.dll"/>
     <UsingTask TaskName="Rxdk.MsBuild.Tasks.ZigAr" AssemblyFile="$(MSBuildThisFileDirectory)Rxdk.MsBuild.dll"/>
+    <UsingTask TaskName="Rxdk.MsBuild.Tasks.ImageBld" AssemblyFile="$(MSBuildThisFileDirectory)Rxdk.MsBuild.dll"/>
 
     <!-- cleanup properties which are not supported by clang -->
     <Import Project="$(VCTargetsPath)\Microsoft.Cpp.ClangCl.Exclusion.props" />
@@ -120,8 +121,6 @@
                       MinimalRebuildFromTracking="$(ClMutliToolTaskMinimalRebuild)"
                       TLogReadFiles="@(CLTLogReadFiles)"
                       TLogWriteFiles="@(CLTLogWriteFiles)"
-                      ToolExe="$(ClangToolExe)"
-                      ToolPath="$(ClangToolPath)"
                       ToolArchitecture="$(CLToolArchitecture)"
                       TrackerFrameworkPath="$(CLTrackerFrameworkPath)"
                       TrackerSdkPath="$(CLTrackerSdkPath)"
@@ -246,7 +245,53 @@
 
         <WriteLinesToFile Overwrite="true" Encoding="Unicode" File="$(TLogLocation)\lib.write.1.tlog" Lines="@(Lib->'^%(Fullpath)');$(LinkUpToDateFile)" />
     </Target>
+    <Target Name="ImageBld" DependsOnTargets="Link">
+        <ItemGroup>
+            <ImageBld>
+                <TimestampSurrogate Condition="'%(ImageBld.TimestampSurrogate)' == ''">$(CompileUpToDateFile)</TimestampSurrogate>
+            </ImageBld>
+        </ItemGroup>
 
+        <ImageBld Condition="'@(ImageBld)' != ''"
+                  OutputFile="%(ImageBld.OutputFile)"
+                  InputFile="@(ImageBld)"
+                          
+                  Dxt="%(ImageBld.Dxt)"
+                  StackSize="%(ImageBld.StackSize)"
+                  Debug="%(ImageBld.Debug)"
+                  NoLogo="%(ImageBld.NoLogo)"
+                  NoLibWarn="%(ImageBld.NoLibWarn)"
+                  LimitMemory="%(ImageBld.LimitMemory)"
+                  DontModifyHardDisk="%(ImageBld.DontModifyHardDisk)"
+                  DontMountUtilityDrive="%(ImageBld.DontMountUtilityDrive)"
+                  FormatUtilityDrive="%(ImageBld.FormatUtilityDrive)"
+                  UtilityDriveClusterSize="%(ImageBld.UtilityDriveClusterSize)"
+                  NoPreload="%(ImageBld.NoPreload)"
+                  TestId="%(ImageBld.TestId)"
+                  TestAltId="%(ImageBld.TestAltId)"
+                  TestRegion="%(ImageBld.TestRegion)"
+                  TestRatings="%(ImageBld.TestRatings)"
+                  TestMediaTypes="%(ImageBld.TestMediaTypes)"
+                  TestLanKey="%(ImageBld.TestLanKey)"
+                  TestSignKey="%(ImageBld.TestSignKey)"
+                  TestName="%(ImageBld.TestName)"
+                  TestVersion="%(ImageBld.TestVersion)"
+                  TitleInfo="%(ImageBld.TitleInfo)"
+                  TitleImage="%(ImageBld.TitleImage)"
+                  DefaultSaveImage="%(ImageBld.DefaultSaveImage)" />
+        
+        <WriteLinesToFile Overwrite="true" Condition="'@(ProjectReferenceToLink->HasMetadata(TimestampSurrogate))' != ''" Encoding="Unicode" File="$(TLogLocation)\ImageBld.read.1.tlog" Lines="@(ImageBld->'^%(Fullpath)','|');@(ProjectReferenceToLink->'%(TimestampSurrogate)'->Distinct())" />
+
+        <WriteLinesToFile Overwrite="true" Encoding="Unicode" File="$(TLogLocation)\imagebld.write.1.tlog" Lines="@(ImageBld->'^%(Fullpath)');$(LinkUpToDateFile)" />
+    </Target>
+
+    <!-- Make sure ImageBld is called -->
+    <PropertyGroup Condition="'$(ConfigurationType)' == 'Application' or '$(ConfigurationType)' == 'DebuggerExtension'">
+        <BuildDependsOn>
+            $(BuildDependsOn);ImageBld
+        </BuildDependsOn>
+    </PropertyGroup>
+    
     <!-- Designtime definitions -->
     <!-- Property pages -->
     <ItemGroup>
@@ -260,6 +305,7 @@
         <PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(LangID)\ZigCompile.xml"/>
         <PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(LangID)\ZigLd.xml" />
         <PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(LangID)\ZigAr.xml" />
+        <PropertyPageSchema Include="$(MSBuildThisFileDirectory)$(LangID)\ImageBld.xml" />
     </ItemGroup>
 
     <!-- Property pages -->
@@ -272,9 +318,10 @@
         <RemotePreBuildEvent Include="$(ProjectName)" />
         <RemotePreLinkEvent Include="$(ProjectName)" />
         <RemotePostBuildEvent Include="$(ProjectName)" />
-
+        
         <!-- Tools that show up in the IDE property pages for Link/Lib -->
         <ProjectTools Condition="'$(ConfigurationType)' == 'Application' or '$(ConfigurationType)' == 'DebuggerExtension'" Include="Link" />
+        <ProjectTools Condition="'$(ConfigurationType)' == 'Application' or '$(ConfigurationType)' == 'DebuggerExtension'" Include="ImageBld" />
         <ProjectTools Condition="'$(ConfigurationType)' == 'StaticLibrary'" Include="Lib" />
         <ProjectTools Include="CustomBuildStep" />
     </ItemGroup>
