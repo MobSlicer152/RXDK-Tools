@@ -221,6 +221,10 @@ ___eh_frame_end:
                     CompileAs="%(ClCompile.CompileAs)"
                     ForcedIncludeFiles="%(ClCompile.ForcedIncludeFiles)"
                     AdditionalOptions="%(ClCompile.AdditionalOptions)" />
+        
+        <WriteLinesToFile Overwrite="true" Condition="'@(ProjectReferenceToLink->HasMetadata(TimestampSurrogate))' != ''" Encoding="Unicode" File="$(TLogLocation)\ClCompile.read.1.tlog" Lines="@(ClCompile->'^%(Fullpath)','|');@(ProjectReferenceToLink->'%(TimestampSurrogate)'->Distinct())" />
+
+        <WriteLinesToFile Overwrite="true" Encoding="Unicode" File="$(TLogLocation)\ClCompile.write.1.tlog" Lines="@(ClCompile->'^%(Fullpath)','|');$(ClCompileUpToDateFile)" />
     </Target>
 
     <Target Name="Link"   

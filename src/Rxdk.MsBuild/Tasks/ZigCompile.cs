@@ -589,33 +589,33 @@ namespace Rxdk.MsBuild.Tasks
             }
         }
 
-        private string firstReadTLog { get => $"{typeof(ZigCompile).FullName}.read.1.tlog"; }
-        protected override string[] ReadTLogNames
-        {
-            get => new string[] {
-                    firstReadTLog,
-                    $"{SubTool}.read.*.tlog",
-                    $"{SubTool}.*.read.*.tlog",
-                    $"{SubTool}-*.read.*.tlog",
-                    $"{SubTool}.delete.*.tlog",
-                    $"{SubTool}.*.delete.*.tlog",
-                    $"{SubTool}-*.delete.*.tlog"};
-        }
-
-        private string firstWriteTLog { get => $"{typeof(ZigCompile).FullName}.write.1.tlog"; }
-        protected override string[] WriteTLogNames
-        {
-            get => new string[] {
-                    firstWriteTLog,
-                    $"{SubTool}.write.*.tlog",
-                    $"{SubTool}.*.write.*.tlog",
-                    $"{SubTool}-*.write.*.tlog" };
-        }
-
-        protected override string CommandTLogName
-        {
-            get => $"{SubTool}.command.1.tlog";
-        }
+        //private string firstReadTLog { get => $"{typeof(ZigCompile).FullName}.read.1.tlog"; }
+        //protected override string[] ReadTLogNames
+        //{
+        //    get => new string[] {
+        //            firstReadTLog,
+        //            $"{SubTool}.read.*.tlog",
+        //            $"{SubTool}.*.read.*.tlog",
+        //            $"{SubTool}-*.read.*.tlog",
+        //            $"{SubTool}.delete.*.tlog",
+        //            $"{SubTool}.*.delete.*.tlog",
+        //            $"{SubTool}-*.delete.*.tlog"};
+        //}
+        //
+        //private string firstWriteTLog { get => $"{typeof(ZigCompile).FullName}.write.1.tlog"; }
+        //protected override string[] WriteTLogNames
+        //{
+        //    get => new string[] {
+        //            firstWriteTLog,
+        //            $"{SubTool}.write.*.tlog",
+        //            $"{SubTool}.*.write.*.tlog",
+        //            $"{SubTool}-*.write.*.tlog" };
+        //}
+        //
+        //protected override string CommandTLogName
+        //{
+        //    get => $"{SubTool}.command.1.tlog";
+        //}
 
         protected override bool TrackReplaceFile { get => true; }
 
@@ -641,43 +641,43 @@ namespace Rxdk.MsBuild.Tasks
                 Log.LogMessage(MessageImportance.High, Path.GetFileName(taskItem.ItemSpec), Array.Empty<object>());
             }
 
-            var firstReadTlogPath = Path.Combine(TrackerIntermediateDirectory, firstReadTLog);
-            var firstWriteTlogPath = Path.Combine(TrackerIntermediateDirectory, firstWriteTLog);
-
-            for (int attempt = 0; attempt < 30; attempt++)
-            {
-                if (!File.Exists(firstReadTlogPath))
-                {
-                    try 
-                    {
-                        using (File.Create(firstReadTlogPath))
-                        {
-                        }
-                    }
-                    catch (IOException)
-                    {
-                        Thread.Sleep(50);
-                        continue;
-                    }
-                }
-
-                if (!File.Exists(firstWriteTlogPath))
-                {
-                    try
-                    {
-                        using (File.Create(firstWriteTlogPath))
-                        {
-                        }
-                    }
-                    catch (IOException)
-                    {
-                        Thread.Sleep(50);
-                        continue;
-                    }
-                }
-
-                break;
-            }
+            //var firstReadTlogPath = Path.Combine(TrackerIntermediateDirectory, firstReadTLog);
+            //var firstWriteTlogPath = Path.Combine(TrackerIntermediateDirectory, firstWriteTLog);
+            //
+            //for (int attempt = 0; attempt < 30; attempt++)
+            //{
+            //    if (!File.Exists(firstReadTlogPath))
+            //    {
+            //        try 
+            //        {
+            //            using (File.Create(firstReadTlogPath))
+            //            {
+            //            }
+            //        }
+            //        catch (IOException)
+            //        {
+            //            Thread.Sleep(50);
+            //            continue;
+            //        }
+            //    }
+            //
+            //    if (!File.Exists(firstWriteTlogPath))
+            //    {
+            //        try
+            //        {
+            //            using (File.Create(firstWriteTlogPath))
+            //            {
+            //            }
+            //        }
+            //        catch (IOException)
+            //        {
+            //            Thread.Sleep(50);
+            //            continue;
+            //        }
+            //    }
+            //
+            //    break;
+            //}
 
             errorListRegexList.Add(clangMessageRegex);
             return base.ExecuteTool(pathToTool, responseFileCommands, commandLineCommands);
