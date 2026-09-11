@@ -88,7 +88,7 @@
     <Target Name="ClCompile"
             Condition="'@(ClCompile)' != ''"
             Inputs="@(ClCompile)"
-            Outputs="@(ClCompile->'%(ObjectFileName)')"
+            Outputs="@(ClCompile->'%(ObjectFileName)');$(IntDir)eh_start.obj;$(IntDir)eh_end.obj"
             DependsOnTargets="SelectClCompile" >
 
         <PropertyGroup>
@@ -150,22 +150,18 @@ ___eh_frame_end:
             </_EhEndSource>
         </PropertyGroup>
 
-        <WriteLinesToFile Condition="'@(Link)' != '' and !Exists('$(_EhStartFile)')"
-                          File="$(_EhStartFile)"
+        <WriteLinesToFile File="$(_EhStartFile)"
                           Overwrite="true"
                           Lines="$(_EhStartSource)" />
-        <WriteLinesToFile Condition="'@(Link)' != '' and !Exists('$(_EhEndFile)')"
-                          File="$(_EhStartFile)"
+        <WriteLinesToFile File="$(_EhEndFile)"
                           Overwrite="true"
                           Lines="$(_EhEndSource)" />
 
-        <ZigCompile Condition="'@(Link)' != ''"
-                    Sources="$(_EhStartFile)"
+        <ZigCompile Sources="$(_EhStartFile)"
                     ObjectFileName="$(IntDir)eh_start.obj"
                     CompileAs="CompileAsAsm"
                     ForcedIncludeFiles="" />
-        <ZigCompile Condition="'@(Link)' != ''"
-                    Sources="$(_EhEndFile)"
+        <ZigCompile Sources="$(_EhEndFile)"
                     ObjectFileName="$(IntDir)eh_end.obj"
                     CompileAs="CompileAsAsm"
                     ForcedIncludeFiles="" />

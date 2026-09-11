@@ -6,10 +6,13 @@
         <IncludePath>$(RXDK)\sdk\include\c++\v1;$(RXDK)\sdk\include</IncludePath>
         <LibraryPath Condition="'$(UseDebugLibraries)' == 'true'">$(RXDK)\sdk\lib\debug</LibraryPath>
         <LibraryPath Condition="'$(UseDebugLibraries)' != 'true'">$(RXDK)\sdk\lib\release</LibraryPath>
-        <IntellisenseIncludePath>$(RXDK)\sdk\intellisense</IntellisenseIncludePath>
         <NeedImageBld Condition="'$(ConfigurationType)' == 'Application' or '$(ConfigurationType)' == 'DebuggerExtension'">true</NeedImageBld>
         <!-- This happens because of how ImageBld is set up -->
         <MSBuildWarningsAsMessages Condition="'$(NeedImageBld)' != ''">$(MSBuildWarningsAsMessages);MSB8012</MSBuildWarningsAsMessages>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(DesignTimeBuild)' == 'true'">
+        <!--<IncludePath>$(AdditionalIncludeDirectories);$(IncludePath);$(RXDK)\sdk\intellisense</IncludePath>-->
     </PropertyGroup>
 
     <!-- Specific values -->
@@ -66,6 +69,10 @@
             <PrecompiledHeaderOutputFile></PrecompiledHeaderOutputFile>
             <PrecompiledHeaderCompileAs>CompileAsCpp</PrecompiledHeaderCompileAs>
             <ForcedIncludeFiles>picolibc.h</ForcedIncludeFiles>
+        </ClCompile>
+
+        <ClCompile Condition="'$(DesignTimeBuild)' == 'true'">
+            <!--<ForcedIncludeFiles>rxdk_intellisense.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>-->
         </ClCompile>
 
         <Link>
