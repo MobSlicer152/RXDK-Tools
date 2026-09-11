@@ -87,6 +87,8 @@
 
     <Target Name="ClCompile"
             Condition="'@(ClCompile)' != ''"
+            Inputs="@(ClCompile)"
+            Outputs="@(ClCompile->'%(ObjectFileName)')"
             DependsOnTargets="SelectClCompile" >
 
         <PropertyGroup>
@@ -225,7 +227,15 @@ ___eh_frame_end:
                     AdditionalOptions="%(ClCompile.AdditionalOptions)" />
     </Target>
 
-    <Target Name="Link">
+    <Target Name="Link"   
+            Inputs="
+                @(Link);
+                @(ProjectReferenceToLink);
+                @(Lib);
+                %(Link.AdditionalDependencies);
+                %(Link.LinkerScript)
+            "
+            Outputs="%(Link.OutputFile)">
         <ItemGroup>
             <Link>
                 <TimestampSurrogate Condition="'%(Link.TimestampSurrogate)' == ''">$(CompileUpToDateFile)</TimestampSurrogate>
@@ -265,7 +275,9 @@ ___eh_frame_end:
 
         <WriteLinesToFile Overwrite="true" Encoding="Unicode" File="$(TLogLocation)\link.write.1.tlog" Lines="@(Link->'^%(Fullpath)','|');$(LinkUpToDateFile)" />
     </Target>
-    <Target Name="Lib">
+    <Target Name="Lib"
+            Inputs="@(Lib)"
+            Outputs="%(Lib.OutputFile)">
         <ItemGroup>
             <Lib>
                 <TimestampSurrogate Condition="'%(Lib.TimestampSurrogate)' == ''">$(CompileUpToDateFile)</TimestampSurrogate>
@@ -290,7 +302,10 @@ ___eh_frame_end:
         <WriteLinesToFile Overwrite="true" Encoding="Unicode" File="$(TLogLocation)\lib.write.1.tlog" Lines="@(Lib->'^%(Fullpath)');$(LinkUpToDateFile)" />
     </Target>
     
-    <Target Name="ImageBld" DependsOnTargets="Link">
+    <Target Name="ImageBld"
+            Inputs="@(ImageBld);@(Link)"
+            Outputs="%(ImageBld.OutputFile)"
+            DependsOnTargets="Link">
         <ItemGroup>
             <ImageBld>
                 <TimestampSurrogate Condition="'%(ImageBld.TimestampSurrogate)' == ''">$(CompileUpToDateFile)</TimestampSurrogate>
@@ -330,7 +345,10 @@ ___eh_frame_end:
         <WriteLinesToFile Overwrite="true" Encoding="Unicode" File="$(TLogLocation)\imagebld.write.1.tlog" Lines="@(ImageBld->'^%(Fullpath)');$(LinkUpToDateFile)" />
     </Target>
 
-    <Target Name="StageIsoFiles" Condition="'@(Xiso)' != ''">
+    <Target Name="StageIsoFiles"
+            Inputs="%(ImageBld.OutputFile);@(IsoCopy)"
+            Outputs="@(Xiso)"
+            Condition="'@(Xiso)' != ''">
         <PropertyGroup>
             <_XisoDir>@(Xiso)</_XisoDir>
         </PropertyGroup>
@@ -344,7 +362,10 @@ ___eh_frame_end:
               UseHardlinksIfPossible="true" />
     </Target>
     
-    <Target Name="Xiso" DependsOnTargets="StageIsoFiles">
+    <Target Name="Xiso"
+            Inputs="@(Xiso)"
+            Outputs="%(Xiso.OutputFile)"
+            DependsOnTargets="StageIsoFiles">
         <ItemGroup>
             <Xiso>
                 <TimestampSurrogate Condition="'%(Xiso.TimestampSurrogate)' == ''">$(CompileUpToDateFile)</TimestampSurrogate>
