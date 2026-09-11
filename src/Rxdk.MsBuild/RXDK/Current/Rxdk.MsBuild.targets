@@ -102,6 +102,7 @@
                 <!-- Moved to this target to avoid adding add $(IncludePath) for intellisense -->
                 <AdditionalIncludeDirectories>%(ClCompile.AdditionalIncludeDirectories);$(IncludePath)</AdditionalIncludeDirectories>
                 <ExcludedInputPaths>$(ExcludePath)</ExcludedInputPaths>
+                <TimestampSurrogate Condition="'%(ClCompile.TimestampSurrogate)' == ''">$(CompileUpToDateFile)</TimestampSurrogate>
             </ClCompile>
         </ItemGroup>
 
@@ -109,7 +110,7 @@
         <Message Condition="'$(_DebugMessages)' == 'true'" Importance="high" Text="ClCompilePCH.ObjectFileName = '%(ClCompilePCH.ObjectFileName)'"/>
 
         <MultiToolTask Condition="'%(ClCompile.ExcludedFromBuild)' != 'true' and '$(UseMultiToolTask)' == 'true'"
-                      TaskName="Microsoft.Build.CPPTasks.ClangCompile"
+                      TaskName="Rxdk.MsBuild.Tasks.ZigCompile"
                       TaskAssemblyName="$(VCTargetsPath)Microsoft.Build.CppTasks.Common.dll"
                       Sources="@(ClCompile)"
 
@@ -126,6 +127,46 @@
                       TrackerFrameworkPath="$(CLTrackerFrameworkPath)"
                       TrackerSdkPath="$(CLTrackerSdkPath)"
                       EnableExecuteTool="$(ClangEnableExecuteTool)" />
+
+        <!-- EH frame needs to be done like this -->
+        <PropertyGroup>
+            <_EhStartFile>$(IntDir)eh_start.asm</_EhStartFile>
+            <_EhEndFile>$(IntDir)eh_end.asm</_EhEndFile>
+            <_EhStartSource>
+                <![CDATA[                
+.section .eh_frame,"dr"
+.globl ___eh_frame_start
+___eh_frame_start:
+]]>
+            </_EhStartSource>
+            <_EhEndSource>
+                <![CDATA[                
+.section .eh_frame,"dr"
+.globl ___eh_frame_end
+___eh_frame_end:
+]]>
+            </_EhEndSource>
+        </PropertyGroup>
+
+        <WriteLinesToFile Condition="'@(Link)' != '' and !Exists('$(_EhStartFile)')"
+                          File="$(_EhStartFile)"
+                          Overwrite="true"
+                          Lines="$(_EhStartSource)" />
+        <WriteLinesToFile Condition="'@(Link)' != '' and !Exists('$(_EhEndFile)')"
+                          File="$(_EhStartFile)"
+                          Overwrite="true"
+                          Lines="$(_EhEndSource)" />
+
+        <ZigCompile Condition="'@(Link)' != ''"
+                    Sources="$(_EhStartFile)"
+                    ObjectFileName="$(IntDir)eh_start.obj"
+                    CompileAs="CompileAsAsm"
+                    ForcedIncludeFiles="" />
+        <ZigCompile Condition="'@(Link)' != ''"
+                    Sources="$(_EhEndFile)"
+                    ObjectFileName="$(IntDir)eh_end.obj"
+                    CompileAs="CompileAsAsm"
+                    ForcedIncludeFiles="" />
 
         <ZigCompile Condition="'%(ClCompile.PrecompiledHeader)' == 'Create' and '$(UseMultiToolTask)' != 'true'"
                     Sources="@(ClCompile)"
@@ -190,8 +231,9 @@
                 <TimestampSurrogate Condition="'%(Link.TimestampSurrogate)' == ''">$(CompileUpToDateFile)</TimestampSurrogate>
             </Link>
         </ItemGroup>
+        
         <ZigLd Condition="'@(Link)' != ''"
-               Sources="@(Link)"
+               Sources="$(IntDir)eh_start.obj;@(Link);$(IntDir)eh_end.obj"
                OutputFile="%(Link.OutputFile)"
                
                ShowProgress="%(Link.ShowProgress)"
@@ -216,8 +258,9 @@
                WholeArchiveBegin="%(Link.WholeArchiveBegin)"
                AdditionalOptions="%(Link.AdditionalOptions)"
                AdditionalDependencies="%(Link.AdditionalDependencies)"
-               WholeArchiveEnd="%(Link.WholeArchiveEnd)"
-               LibraryDependencies="%(Link.LibraryDependencies)" />
+               LibraryDependencies="%(Link.LibraryDependencies)"
+               WholeArchiveEnd="%(Link.WholeArchiveEnd)" />
+        
         <WriteLinesToFile Overwrite="true" Condition="'@(ProjectReferenceToLink->HasMetadata(TimestampSurrogate))' != ''" Encoding="Unicode" File="$(TLogLocation)\link.read.1.tlog" Lines="@(Link->'^%(Fullpath)','|');@(ProjectReferenceToLink->'%(TimestampSurrogate)'->Distinct())" />
 
         <WriteLinesToFile Overwrite="true" Encoding="Unicode" File="$(TLogLocation)\link.write.1.tlog" Lines="@(Link->'^%(Fullpath)','|');$(LinkUpToDateFile)" />

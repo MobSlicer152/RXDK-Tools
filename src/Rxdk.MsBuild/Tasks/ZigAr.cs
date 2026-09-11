@@ -13,7 +13,8 @@ namespace Rxdk.MsBuild.Tasks
     {
         public ZigAr()
         {
-            switchOrderList.AddRange(new string[] {
+            // dont need target or machine
+            switchOrderList = new ArrayList {
                 "Command",
                 "AlwaysAppend",
                 "CreateIndex",
@@ -25,7 +26,7 @@ namespace Rxdk.MsBuild.Tasks
                 "AdditionalOptions",
                 "OutputFile",
                 "Sources",
-            });
+            };
         }
 
         public override string SubTool => "ar";

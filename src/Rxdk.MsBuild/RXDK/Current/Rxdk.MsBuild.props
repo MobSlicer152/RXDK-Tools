@@ -3,7 +3,7 @@
 
     <PropertyGroup>
         <EnableStdModules>false</EnableStdModules>
-        <IncludePath>$(RXDK)\sdk\include</IncludePath>
+        <IncludePath>$(RXDK)\sdk\include\c++\v1;$(RXDK)\sdk\include</IncludePath>
         <LibraryPath Condition="'$(UseDebugLibraries)' == 'true'">$(RXDK)\sdk\lib\debug</LibraryPath>
         <LibraryPath Condition="'$(UseDebugLibraries)' != 'true'">$(RXDK)\sdk\lib\release</LibraryPath>
         <IntellisenseIncludePath>$(RXDK)\sdk\intellisense</IntellisenseIncludePath>
@@ -65,6 +65,7 @@
             <PrecompiledHeaderOutputFileDirectory>$(IntDir)</PrecompiledHeaderOutputFileDirectory>
             <PrecompiledHeaderOutputFile></PrecompiledHeaderOutputFile>
             <PrecompiledHeaderCompileAs>CompileAsCpp</PrecompiledHeaderCompileAs>
+            <ForcedIncludeFiles>picolibc.h</ForcedIncludeFiles>
         </ClCompile>
 
         <Link>

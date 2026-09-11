@@ -77,7 +77,8 @@ namespace Rxdk.MsBuild.Tasks
             "-c",
 
             "-ffreestanding", "-fno-stack-protector", "-fms-extensions", "-fms-compatibility",
-            "-nostdinc", "-include", "picolibc.h", "-march=pentium3",
+            "-fms-compatibility-version=19.44",
+            "-nostdinc", "-march=pentium3",
             // Every Xbox title is built with _XBOX/XBOX defined (the XDK did this); a lot of
             // Xbox headers/code select their platform path on it.
             "-D_XBOX", "-DXBOX",
